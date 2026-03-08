@@ -827,6 +827,33 @@ class TestProTier:
 
 
 # ===========================================================================
+# 25. v21 — SCT (Strefa Czystego Transportu)
+# ===========================================================================
+
+class TestSCT:
+    def test_sct_fine_exists(self):
+        """Mandat SCT = 500 zł."""
+        assert app.SCT_FINE_PER_ENTRY == 500
+
+    def test_sct_free_entries(self):
+        """4 darmowe wjazdy/rok."""
+        assert app.SCT_FREE_ENTRIES == 4
+
+    def test_sct_min_year_petrol(self):
+        """Benzyna/LPG: min rocznik 2005 (Euro 4+)."""
+        assert app.SCT_MIN_YEAR_PETROL == 2005
+
+    def test_sct_min_year_diesel(self):
+        """Diesel: min rocznik 2009 (Euro 5+)."""
+        assert app.SCT_MIN_YEAR_DIESEL == 2009
+
+    def test_sct_cities(self):
+        """SCT aktywne w Warszawie i Krakowie."""
+        assert "Warszawa" in app.SCT_CITIES
+        assert "Kraków" in app.SCT_CITIES
+
+
+# ===========================================================================
 # 26. v21 — optimize_charging with submeter/price_cap
 # ===========================================================================
 

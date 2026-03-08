@@ -4,6 +4,7 @@
 
 APP_VERSION = "21"
 
+import re
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -228,6 +229,17 @@ DYNAMIC_PRICE_CAP = 0.42  # Max średnia miesięczna = taryfa G11
 # ---------------------------------------------------------------------------
 MOJ_PRAD_6_MAX = 28_000  # Maks. dotacja Mój Prąd 6.0 (PV+BESS)
 
+# ---------------------------------------------------------------------------
+# SCT – Strefa Czystego Transportu (Warszawa 2026 / Kraków 2026)
+# Źródła: transport.um.warszawa.pl, ztp.krakow.pl, otomoto.pl
+# ---------------------------------------------------------------------------
+SCT_FINE_PER_ENTRY = 500        # Mandat za wjazd do SCT bez uprawnień (zł)
+SCT_FREE_ENTRIES = 4            # Darmowe wjazdy rocznie (Warszawa)
+# Rok produkcji minimalny do wjazdu (najostrzejszy z miast – Kraków)
+SCT_MIN_YEAR_PETROL = 2005      # Euro 4+ (benzyna / LPG)
+SCT_MIN_YEAR_DIESEL = 2009      # Euro 5+ (diesel)
+SCT_CITIES = ["Warszawa", "Kraków"]  # Aktywne SCT w 2026
+# BEV / PHEV (tryb EV) – zawsze uprawnione do wjazdu
 
 # ---------------------------------------------------------------------------
 # POBIERANIE CEN PALIW Z E-PETROL.PL
@@ -2445,7 +2457,7 @@ if st.session_state.get("tco_calculated", False):
         "Wszystkie kwoty **brutto** (cashflow z VAT). Tarcza podatkowa odliczona osobno."
     )
 
-    # SMART ALERT
+    # SMART ALERT — pułapka taniego ICE
     is_cheap_ice = vehicle_price_ice <= 35_000 and not is_new_ice
     is_trap = is_cheap_ice and annual_mileage >= 25_000 and tco_ice > tco_bev * 0.85
     if is_trap:
@@ -2459,6 +2471,31 @@ if st.session_state.get("tco_calculated", False):
             f"nowe BEV z limitem podatkowym **225 000 zł** (vs 100 000 zł ICE) "
             f"i ładować inteligentnie po ujemnych cenach!\n\n"
             f"**TCO BEV: {tco_bev:,.0f} zł** vs **TCO ICE: {tco_ice:,.0f} zł**"
+        )
+
+    # SMART ALERT — SCT (Strefa Czystego Transportu)
+    # Stare używane ICE mogą mieć zakaz wjazdu do centrów miast od 2026
+    _sct_risk = False
+    _sct_fuel = "benzyna/LPG" if fuel_type_idx != 1 else "diesel"
+    _sct_min_year = SCT_MIN_YEAR_PETROL if fuel_type_idx != 1 else SCT_MIN_YEAR_DIESEL
+    # Heurystyka: tani używany ICE (< 50k zł) = prawdopodobnie starszy niż limity SCT
+    _year_match = re.search(r'20[0-2]\d', ice_model)
+    _ice_year = int(_year_match.group()) if _year_match else None
+    if _ice_year and _ice_year < _sct_min_year:
+        _sct_risk = True
+    elif not _ice_year and not is_new_ice and vehicle_price_ice <= 50_000:
+        _sct_risk = True  # tani używany bez podanego roku = prawdopodobnie stary
+    if _sct_risk:
+        _sct_annual_penalty = max(0, 12 * 20 - SCT_FREE_ENTRIES) * SCT_FINE_PER_ENTRY  # ~20 wjazdów/mies × 12
+        st.warning(
+            f"### 🚫 Strefa Czystego Transportu — ryzyko zakazu wjazdu!\n\n"
+            f"Od 2026 r. w **{', '.join(SCT_CITIES)}** obowiązują limity emisji:\n"
+            f"- {_sct_fuel}: wymagany rocznik **≥ {_sct_min_year}** (norma Euro {4 if fuel_type_idx != 1 else 5}+)\n"
+            f"- Mandat: **{SCT_FINE_PER_ENTRY} zł** za każdy wjazd (po {SCT_FREE_ENTRIES} darmowych/rok)\n"
+            f"- **BEV i PHEV (tryb EV)** — zawsze uprawnione do wjazdu\n\n"
+            f"Jeśli dojeżdżasz do centrum {annual_mileage // 250:.0f}× w roku, "
+            f"potencjalny koszt mandatów: **~{_sct_annual_penalty:,.0f} zł/rok**.\n\n"
+            f"*Rozważ BEV lub nowszy pojazd spełniający normy SCT.*"
         )
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
