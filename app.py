@@ -89,7 +89,7 @@ st.caption(
     "tarcza podatkowa 2026 i wpływ temperatury na zużycie."
 )
 
-with st.expander("📊 Infografika — dlaczego musisz policzyć TCO przed 2026?", expanded=False):
+with st.expander("📊 Infografika — dlaczego musisz policzyć TCO w 2026?", expanded=False):
     try:
         st.image("infografika.png", use_container_width=True)
     except Exception:
