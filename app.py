@@ -750,9 +750,14 @@ def calculate_maintenance_cost(
     discount = NEW_CAR_MAINTENANCE_DISCOUNT if is_new else 1.0
     is_tesla = "tesla" in brand.lower()
 
-    if engine_type == "ICE":
+    if engine_type in ("ICE", "HEV", "PHEV"):
         min_c, max_c = ICE_MAINTENANCE_COSTS[segment_idx]
-        total_per_km = (min_c + max_c) / 2 * discount
+        base_per_km = (min_c + max_c) / 2 * discount
+        if engine_type == "HEV":
+            base_per_km *= HEV_MAINTENANCE_FACTOR
+        elif engine_type == "PHEV":
+            base_per_km *= PHEV_MAINTENANCE_FACTOR
+        total_per_km = base_per_km
         total = total_per_km * mileage_km
 
         if segment_idx <= 1:
@@ -871,14 +876,20 @@ def calculate_tax_shield(
     leasing: dict = None,  # dict from calculate_leasing_params() or None for gotówka
 ) -> dict:
     """Szczegółowa tarcza podatkowa 2026 z rozbiciem VAT, KUP, leasingu."""
-    limit = 100_000 if engine_type == "ICE" else 225_000
+    # PHEV: limit BEV (225k) od 2025, HEV: limit ICE (100k)
+    if engine_type in ("BEV", "PHEV"):
+        limit = 225_000
+    else:
+        limit = 100_000
     is_bev = engine_type == "BEV"
+    is_phev = engine_type == "PHEV"
 
     # --- Współczynniki wg użytkowania ---
     if usage_type == "firmowe":
         kup_pct = 1.0       # 100% kosztów w KUP
         vat_vehicle = 1.0   # 100% VAT od pojazdu (do limitu)
-        vat_fuel = 1.0 if is_bev else 0.5   # BEV: 100% VAT od energii, ICE: 50%
+        # BEV/PHEV: 100% VAT od energii, ICE/HEV: 50% paliwo
+        vat_fuel = 1.0 if (is_bev or is_phev) else 0.5
         vat_ekspl = 1.0     # 100% VAT od eksploatacji
     elif usage_type == "mieszane":
         kup_pct = 0.75      # 75% kosztów w KUP
@@ -1014,6 +1025,19 @@ DEPRECIATION_CURVE_USED_BEV = {
     1: 0.87, 2: 0.76, 3: 0.67, 4: 0.59, 5: 0.52,
     6: 0.46, 7: 0.40, 8: 0.32, 9: 0.26, 10: 0.21,
 }
+# Hybrydy: między ICE a BEV — popularne marki (Toyota, Hyundai) trzymają wartość dobrze
+DEPRECIATION_CURVE_NEW_HYB = {
+    1: 0.80, 2: 0.67, 3: 0.58, 4: 0.50, 5: 0.43,
+    6: 0.37, 7: 0.32, 8: 0.28, 9: 0.24, 10: 0.21,
+}
+DEPRECIATION_CURVE_USED_HYB = {
+    1: 0.88, 2: 0.77, 3: 0.68, 4: 0.61, 5: 0.55,
+    6: 0.49, 7: 0.44, 8: 0.39, 9: 0.35, 10: 0.31,
+}
+
+# Maintenance factors vs ICE base cost
+HEV_MAINTENANCE_FACTOR = 0.85   # 85% kosztów ICE (hamowanie rekuperacyjne, mniej wymiany olejów)
+PHEV_MAINTENANCE_FACTOR = 0.95  # 95% kosztów ICE (serwis spalinowy + bateria HV)
 
 
 def calculate_depreciation(vehicle_price, segment_idx, period_years, engine_type, is_new,
@@ -1037,9 +1061,19 @@ def calculate_depreciation(vehicle_price, segment_idx, period_years, engine_type
     # Fallback do hardcoded
     if curve is None:
         if is_new:
-            curve = DEPRECIATION_CURVE_NEW_BEV if engine_type == "BEV" else DEPRECIATION_CURVE_NEW_ICE
+            if engine_type == "BEV":
+                curve = DEPRECIATION_CURVE_NEW_BEV
+            elif engine_type in ("HEV", "PHEV"):
+                curve = DEPRECIATION_CURVE_NEW_HYB
+            else:
+                curve = DEPRECIATION_CURVE_NEW_ICE
         else:
-            curve = DEPRECIATION_CURVE_USED_BEV if engine_type == "BEV" else DEPRECIATION_CURVE_USED_ICE
+            if engine_type == "BEV":
+                curve = DEPRECIATION_CURVE_USED_BEV
+            elif engine_type in ("HEV", "PHEV"):
+                curve = DEPRECIATION_CURVE_USED_HYB
+            else:
+                curve = DEPRECIATION_CURVE_USED_ICE
 
     years = min(period_years, 10)
     if years <= 0:
@@ -1061,7 +1095,13 @@ def calculate_depreciation(vehicle_price, segment_idx, period_years, engine_type
 
 
 def estimate_insurance(vehicle_price, engine_type):
-    return 1200 + vehicle_price * (0.04 if engine_type == "ICE" else 0.05)
+    if engine_type == "BEV":
+        rate = 0.05
+    elif engine_type in ("HEV", "PHEV"):
+        rate = 0.042
+    else:
+        rate = 0.04
+    return 1200 + vehicle_price * rate
 
 
 def calculate_tco_quick(
@@ -1255,6 +1295,92 @@ BEV_PRESETS_USED = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# HYBRYDY – presety HEV i PHEV pogrupowane wg segmentów
+# hybrid_type: "HEV" (pełna hybryda, bez ładowania) / "PHEV" (plug-in, z baterią)
+# elec_pct: szacowany % jazdy na prądzie (0 dla HEV, 40-80% dla PHEV przy ładowaniu w domu)
+# city_l / hwy_l: spalanie w trybie hybrydowym (PHEV: gdy bateria wyczerpana = charge-sustaining)
+# city_kwh / hwy_kwh: zużycie prądu w trybie elektrycznym PHEV
+# ---------------------------------------------------------------------------
+_CUSTOM_HYB_NEW = {"price": 150_000, "city_l": 5.0, "hwy_l": 5.5, "fuel": 0,
+                   "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0}
+_CUSTOM_HYB_USED = {"price": 80_000, "city_l": 5.0, "hwy_l": 5.5, "fuel": 0,
+                    "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0}
+
+HYB_PRESETS_NEW = {
+    "A – Mini": {
+        "Toyota Yaris 1.5 Hybrid": {"price": 95_000, "city_l": 3.8, "hwy_l": 4.8, "fuel": 0,
+                                     "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+    },
+    "B – Małe": {
+        "Toyota Yaris Cross 1.5 Hybrid": {"price": 120_000, "city_l": 4.8, "hwy_l": 5.5, "fuel": 0,
+                                           "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Renault Clio E-Tech Hybrid": {"price": 98_000, "city_l": 4.2, "hwy_l": 5.0, "fuel": 0,
+                                        "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+    },
+    "C – Kompakt": {
+        "Toyota Corolla 2.0 Hybrid": {"price": 145_000, "city_l": 4.3, "hwy_l": 5.0, "fuel": 0,
+                                       "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Toyota C-HR 2.0 Hybrid": {"price": 150_000, "city_l": 4.8, "hwy_l": 5.5, "fuel": 0,
+                                    "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Kia Niro 1.6 PHEV": {"price": 165_000, "city_l": 1.4, "hwy_l": 5.5, "fuel": 0,
+                               "hybrid_type": "PHEV", "bat": 11.1, "city_kwh": 14.0, "hwy_kwh": 17.0, "elec_pct": 0.60},
+    },
+    "D – Średni": {
+        "Toyota RAV4 2.5 Hybrid": {"price": 185_000, "city_l": 5.2, "hwy_l": 6.0, "fuel": 0,
+                                    "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Hyundai Tucson 1.6 HEV": {"price": 158_000, "city_l": 6.0, "hwy_l": 6.5, "fuel": 0,
+                                    "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Toyota RAV4 2.5 PHEV": {"price": 235_000, "city_l": 1.0, "hwy_l": 6.0, "fuel": 0,
+                                  "hybrid_type": "PHEV", "bat": 18.1, "city_kwh": 16.0, "hwy_kwh": 19.0, "elec_pct": 0.65},
+        "Hyundai Tucson 1.6 PHEV": {"price": 205_000, "city_l": 1.4, "hwy_l": 6.5, "fuel": 0,
+                                     "hybrid_type": "PHEV", "bat": 13.8, "city_kwh": 15.5, "hwy_kwh": 18.5, "elec_pct": 0.55},
+        "Mitsubishi Outlander PHEV": {"price": 215_000, "city_l": 1.8, "hwy_l": 7.0, "fuel": 0,
+                                      "hybrid_type": "PHEV", "bat": 20.0, "city_kwh": 17.0, "hwy_kwh": 20.0, "elec_pct": 0.60},
+    },
+    "E – Wyższy": {
+        "BMW 330e": {"price": 255_000, "city_l": 1.5, "hwy_l": 6.5, "fuel": 0,
+                     "hybrid_type": "PHEV", "bat": 12.0, "city_kwh": 15.0, "hwy_kwh": 18.0, "elec_pct": 0.50},
+        "Mercedes C 300 e": {"price": 280_000, "city_l": 1.2, "hwy_l": 6.0, "fuel": 0,
+                              "hybrid_type": "PHEV", "bat": 25.4, "city_kwh": 16.0, "hwy_kwh": 19.0, "elec_pct": 0.60},
+        "Volvo S60 T8 PHEV": {"price": 270_000, "city_l": 1.5, "hwy_l": 7.0, "fuel": 0,
+                               "hybrid_type": "PHEV", "bat": 18.8, "city_kwh": 16.0, "hwy_kwh": 19.5, "elec_pct": 0.55},
+    },
+}
+
+HYB_PRESETS_USED = {
+    "A – Mini": {
+        "Toyota Yaris 1.5 Hybrid 2021": {"price": 55_000, "city_l": 4.0, "hwy_l": 5.0, "fuel": 0,
+                                          "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+    },
+    "B – Małe": {
+        "Toyota Yaris Cross 1.5 HEV 2022": {"price": 80_000, "city_l": 5.0, "hwy_l": 5.5, "fuel": 0,
+                                              "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Renault Clio E-Tech 2022": {"price": 58_000, "city_l": 4.5, "hwy_l": 5.0, "fuel": 0,
+                                      "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+    },
+    "C – Kompakt": {
+        "Toyota Corolla 2.0 Hybrid 2021": {"price": 85_000, "city_l": 4.5, "hwy_l": 5.2, "fuel": 0,
+                                            "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Toyota C-HR 2.0 Hybrid 2022": {"price": 95_000, "city_l": 5.0, "hwy_l": 5.5, "fuel": 0,
+                                         "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+    },
+    "D – Średni": {
+        "Toyota RAV4 2.5 HEV 2021": {"price": 115_000, "city_l": 5.5, "hwy_l": 6.2, "fuel": 0,
+                                       "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Mitsubishi Outlander PHEV 2021": {"price": 105_000, "city_l": 2.0, "hwy_l": 7.5, "fuel": 0,
+                                            "hybrid_type": "PHEV", "bat": 13.8, "city_kwh": 17.0, "hwy_kwh": 20.0, "elec_pct": 0.50},
+        "Hyundai Tucson HEV 2022": {"price": 105_000, "city_l": 6.2, "hwy_l": 6.8, "fuel": 0,
+                                     "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+    },
+    "E – Wyższy": {
+        "BMW 330e 2021": {"price": 140_000, "city_l": 1.8, "hwy_l": 7.0, "fuel": 0,
+                          "hybrid_type": "PHEV", "bat": 12.0, "city_kwh": 15.0, "hwy_kwh": 18.0, "elec_pct": 0.45},
+        "Volvo XC60 T8 PHEV 2021": {"price": 165_000, "city_l": 2.0, "hwy_l": 8.0, "fuel": 0,
+                                     "hybrid_type": "PHEV", "bat": 11.6, "city_kwh": 17.0, "hwy_kwh": 20.5, "elec_pct": 0.45},
+    },
+}
+
 CAR_SEGMENTS = ["A – Mini", "B – Małe", "C – Kompakt", "D – Średni", "E – Wyższy"]
 
 # ---------------------------------------------------------------------------
@@ -1269,7 +1395,7 @@ _qp_city = int(_qp.get("city", 0))
 _qp_rural = int(_qp.get("rural", 0))
 _qp_hwy = int(_qp.get("hwy", 0))
 
-col_ice, col_bev = st.columns(2)
+col_ice, col_hyb, col_bev = st.columns(3)
 
 with col_ice:
     st.subheader("ICE (spalinowe)")
@@ -1348,6 +1474,92 @@ with col_ice:
         ["Benzyna (PB95)", "Diesel (ON)", "LPG"],
         index=ice_p["fuel"],
     )
+
+with col_hyb:
+    st.subheader("Hybryda (HEV / PHEV)")
+    is_new_hyb = st.radio(
+        "Stan HYB", ["Nowy", "Używany"], horizontal=True, key="is_new_hyb",
+        help="Nowy = auto z salonu. Używany = z rynku wtórnego.",
+    ) == "Nowy"
+    hyb_presets_all = HYB_PRESETS_NEW if is_new_hyb else HYB_PRESETS_USED
+    hyb_segment_opts = ["Własne parametry"] + CAR_SEGMENTS
+    hyb_segment = st.selectbox(
+        "Segment Hybryda", hyb_segment_opts, index=4, key="seg_hyb",
+        help="A=mini, B=małe, C=kompakt, D=średni/SUV, E=wyższy.",
+    )
+    if hyb_segment == "Własne parametry":
+        hyb_p = _CUSTOM_HYB_NEW if is_new_hyb else _CUSTOM_HYB_USED
+        hyb_preset_name = "Własne parametry"
+    else:
+        hyb_models = hyb_presets_all.get(hyb_segment, {})
+        hyb_preset_name = st.selectbox(
+            "Model Hybryda", list(hyb_models.keys()), index=0,
+            help="Wybierz model — cena i spalanie wypełnią się automatycznie.",
+        )
+        hyb_p = hyb_models[hyb_preset_name]
+    hyb_model = st.text_input(
+        "Marka i model Hybryda",
+        value=hyb_preset_name if hyb_preset_name != "Własne parametry" else (
+            "Toyota Corolla 2.0 Hybrid 2024" if is_new_hyb else "Toyota Corolla 2.0 Hybrid 2021"),
+        help="Np. Toyota Corolla Hybrid, RAV4 PHEV, BMW 330e",
+    )
+    hyb_type = hyb_p.get("hybrid_type", "HEV")
+    st.caption(f"Typ: **{hyb_type}** {'(ładowanie z gniazdka + paliwo)' if hyb_type == 'PHEV' else '(paliwo, bez ładowania z gniazdka)'}")
+    vehicle_value_hyb = st.number_input(
+        "Wartość auta HYB – brutto (zł)",
+        min_value=5_000, max_value=1_000_000,
+        value=hyb_p["price"],
+        step=5_000,
+        help="Cena katalogowa / rynkowa brutto (z VAT).",
+    )
+    financing_mode_hyb = st.radio(
+        "Forma finansowania HYB",
+        ["Leasing", "Gotówka"],
+        horizontal=True, index=0,
+        help="Leasing: wpłata + raty + wykup. Gotówka: jednorazowy zakup.",
+    )
+    leasing_hyb = None
+    if financing_mode_hyb == "Leasing":
+        lc1h, lc2h = st.columns(2)
+        with lc1h:
+            down_pct_hyb = st.slider(
+                "Wpłata własna HYB (%)", 0, 50, 10,
+                help="Typowo 0-30% wartości auta.",
+            ) / 100.0
+            lease_months_hyb = st.selectbox(
+                "Okres leasingu HYB (mies.)", [24, 36, 48, 60], index=1,
+            )
+        with lc2h:
+            buyout_pct_hyb = st.slider(
+                "Wykup HYB (%)", 0, 30, 1,
+                help="Wartość wykupu jako % wartości auta. 1% = symboliczny wykup.",
+            ) / 100.0
+        leasing_hyb = calculate_leasing_params(
+            vehicle_value_hyb, down_pct_hyb, lease_months_hyb, buyout_pct_hyb,
+        )
+        st.caption(
+            f"Rata netto: **{leasing_hyb['monthly_rate_netto']:,.0f} zł** | "
+            f"Suma wpłat brutto: {leasing_hyb['total_cashflow_brutto']:,.0f} zł | "
+            f"Odsetki: {leasing_hyb['total_interest_netto']:,.0f} zł netto | "
+            f"Wykup: {leasing_hyb['buyout_brutto']:,.0f} zł brutto"
+        )
+        total_acquisition_hyb = leasing_hyb["total_cashflow_brutto"]
+    else:
+        total_acquisition_hyb = vehicle_value_hyb
+    vehicle_price_hyb = vehicle_value_hyb
+    hyb_fuel_type_idx = hyb_p.get("fuel", 0)
+    hyb_fuel_type = ["Benzyna (PB95)", "Diesel (ON)", "LPG"][hyb_fuel_type_idx]
+    if hyb_type == "PHEV":
+        hyb_elec_pct = st.slider(
+            "% jazdy na prądzie (PHEV)",
+            10, 95,
+            int(hyb_p.get("elec_pct", 0.6) * 100),
+            step=5,
+            help="Szacowany udział jazdy na silniku elektrycznym. "
+                 "Zależy od tras, ładowania w domu i pojemności baterii.",
+        ) / 100.0
+    else:
+        hyb_elec_pct = 0.0
 
 with col_bev:
     st.subheader("BEV (elektryczne)")
@@ -1550,6 +1762,45 @@ with col_ic2:
         "Trasa (l/100 km)", min_value=3.0, max_value=20.0, value=ice_p["hwy_l"], step=0.5,
         help="Spalanie w cyklu pozamiejskim / autostrada.",
     )
+
+st.subheader("Spalanie Hybryda (nominalne)")
+col_hc1, col_hc2 = st.columns(2)
+with col_hc1:
+    hyb_city_l = st.number_input(
+        "Hybryda: miasto (l/100 km)", min_value=0.5, max_value=20.0,
+        value=hyb_p["city_l"], step=0.5,
+        help="Spalanie w cyklu miejskim. PHEV: w trybie charge-sustaining (bat wyczerpana)." if hyb_type == "PHEV"
+        else "Spalanie w cyklu miejskim (tryb hybrydowy).",
+    )
+with col_hc2:
+    hyb_highway_l = st.number_input(
+        "Hybryda: trasa (l/100 km)", min_value=3.0, max_value=20.0,
+        value=hyb_p["hwy_l"], step=0.5,
+        help="Spalanie w cyklu trasowym.",
+    )
+if hyb_type == "PHEV":
+    col_hce1, col_hce2 = st.columns(2)
+    with col_hce1:
+        hyb_city_kwh = st.number_input(
+            "PHEV: miasto (kWh/100 km)", min_value=8.0, max_value=30.0,
+            value=float(hyb_p.get("city_kwh", 15.0)), step=0.5,
+            help="Zużycie prądu w trybie elektrycznym (EV mode).",
+        )
+    with col_hce2:
+        hyb_highway_kwh = st.number_input(
+            "PHEV: trasa (kWh/100 km)", min_value=10.0, max_value=35.0,
+            value=float(hyb_p.get("hwy_kwh", 18.0)), step=0.5,
+            help="Zużycie prądu w trasie (EV mode).",
+        )
+    hyb_bat_cap = st.number_input(
+        "Bateria PHEV (kWh)", min_value=5, max_value=30,
+        value=int(hyb_p.get("bat", 12)), step=1,
+        help="Pojemność baterii HV plug-in.",
+    )
+else:
+    hyb_city_kwh = 0.0
+    hyb_highway_kwh = 0.0
+    hyb_bat_cap = 0
 
 st.subheader("Zużycie BEV (nominalne przy 15°C)")
 col_bc1, col_bc2 = st.columns(2)
@@ -1864,13 +2115,90 @@ if st.session_state.get("tco_calculated", False):
     tco_net_bev = tco_bev - rv_bev + buyout_tax_bev
     cost_per_km_bev = tco_net_bev / total_mileage if total_mileage > 0 else 0
 
+    # --- HYBRYDA ---
+    segment_idx_hyb = price_to_segment(vehicle_price_hyb)
+    hyb_engine_type = hyb_type  # "HEV" or "PHEV"
+
+    if hyb_type == "PHEV" and hyb_elec_pct > 0:
+        # PHEV: split mileage into fuel + electric portions
+        fuel_monthly_km = monthly_km * (1 - hyb_elec_pct)
+        elec_monthly_km = monthly_km * hyb_elec_pct
+
+        # Fuel portion
+        hyb_liters_annual, hyb_fuel_cost_annual, hyb_monthly_liters = calc_annual_fuel_ice(
+            hyb_city_l, hyb_highway_l, road_split, fuel_monthly_km, fuel_price,
+        )
+        # Electric portion
+        hyb_elec_demand, hyb_monthly_kwh = calc_annual_consumption_bev(
+            hyb_city_kwh, hyb_highway_kwh, road_split, elec_monthly_km,
+        )
+        hyb_charging_result = optimize_charging(
+            annual_demand_kwh=hyb_elec_demand,
+            battery_cap_kwh=hyb_bat_cap,
+            pv_kwp=pv_kwp,
+            bess_kwh=bess_kwh,
+            has_home_charger=has_home_charger,
+            has_dynamic_tariff=has_dynamic_tariff,
+            has_old_pv=has_old_pv,
+            suc_distance_km=suc_distance,
+            annual_mileage_km=annual_mileage * hyb_elec_pct,
+            dc_price=dc_price_custom,
+            ac_pub_price=ac_pub_price,
+        )
+        hyb_energy_cost_annual = hyb_fuel_cost_annual + hyb_charging_result["total_cost"]
+    else:
+        # HEV: only fuel, no electricity
+        hyb_liters_annual, hyb_fuel_cost_annual, hyb_monthly_liters = calc_annual_fuel_ice(
+            hyb_city_l, hyb_highway_l, road_split, monthly_km, fuel_price,
+        )
+        hyb_energy_cost_annual = hyb_fuel_cost_annual
+        hyb_elec_demand = 0.0
+        hyb_monthly_kwh = None
+        hyb_charging_result = None
+
+    hyb_energy_cost_total = hyb_energy_cost_annual * period_years
+
+    # Hybrid nominal consumption & temperature penalty
+    if hyb_type == "PHEV" and hyb_elec_pct > 0:
+        _nominal_hyb_l = _pc * hyb_city_l + _pr * hyb_highway_l + _ph * hyb_highway_l * HIGHWAY_SPEED_MULTIPLIER_ICE
+        nominal_hyb_liters = (annual_mileage * (1 - hyb_elec_pct)) / 100 * _nominal_hyb_l
+        hyb_temp_penalty_pct = (hyb_liters_annual / nominal_hyb_liters - 1) * 100 if nominal_hyb_liters > 0 else 0
+    else:
+        _nominal_hyb_l = _pc * hyb_city_l + _pr * hyb_highway_l + _ph * hyb_highway_l * HIGHWAY_SPEED_MULTIPLIER_ICE
+        nominal_hyb_liters = annual_mileage / 100 * _nominal_hyb_l
+        hyb_temp_penalty_pct = (hyb_liters_annual / nominal_hyb_liters - 1) * 100 if nominal_hyb_liters > 0 else 0
+
+    maint_hyb_data = calculate_maintenance_cost(segment_idx_hyb, total_mileage, hyb_engine_type, is_new_hyb)
+    maint_hyb = maint_hyb_data["total"]
+    depreciation_hyb = calculate_depreciation(vehicle_price_hyb, segment_idx_hyb, period_years, hyb_engine_type, is_new_hyb)
+    insurance_hyb = estimate_insurance(vehicle_price_hyb, hyb_engine_type) * period_years
+
+    tax_shield_hyb = 0.0
+    tax_data_hyb = None
+    if use_tax_shield:
+        tax_data_hyb = calculate_tax_shield(
+            vehicle_price_hyb, hyb_engine_type, hyb_energy_cost_annual,
+            estimate_insurance(vehicle_price_hyb, hyb_engine_type), period_years, tax_rate,
+            usage_type=usage_type, leasing=leasing_hyb,
+        )
+        tax_shield_hyb = tax_data_hyb["total"]
+
+    tco_hyb = total_acquisition_hyb + hyb_energy_cost_total + maint_hyb + insurance_hyb - tax_shield_hyb
+    rv_hyb = vehicle_value_hyb - depreciation_hyb
+    buyout_tax_hyb = 0.0
+    if leasing_hyb and usage_type == "prywatne":
+        buyout_tax_hyb = calculate_buyout_tax(
+            leasing_hyb["buyout_brutto"], rv_hyb, period_years, tax_rate)
+    tco_net_hyb = tco_hyb - rv_hyb + buyout_tax_hyb
+    cost_per_km_hyb = tco_net_hyb / total_mileage if total_mileage > 0 else 0
+
     # ===================================================================
     # WYNIKI
     # ===================================================================
     st.divider()
     st.header("Wyniki analizy kosztów")
     st.caption(
-        f"**{ice_model}** vs **{bev_model}** | {total_mileage:,} km w {period_years} lata | "
+        f"**{ice_model}** vs **{hyb_model}** vs **{bev_model}** | {total_mileage:,} km w {period_years} lata | "
         "Wszystkie kwoty **brutto** (cashflow z VAT). Tarcza podatkowa odliczona osobno."
     )
 
@@ -1897,23 +2225,28 @@ if st.session_state.get("tco_calculated", False):
 
     with tab1:
         # RV i TCO netto
-        col_rv1, col_rv2 = st.columns(2)
+        col_rv1, col_rv2, col_rv3 = st.columns(3)
         with col_rv1:
-            st.markdown(f"**{ice_model}**")
+            st.markdown(f"**🔴 {ice_model}**")
             c1, c2, c3 = st.columns(3)
-            c1.metric("Wartość rezydualna (RV)", f"{rv_ice:,.0f} zł",
-                       delta=f"-{depreciation_ice:,.0f} zł deprecjacja", delta_color="inverse")
-            c2.metric("Tarcza podatkowa", f"-{tax_shield_ice:,.0f} zł")
-            c3.metric("TCO netto (po sprzedaży)", f"{tco_net_ice:,.0f} zł",
-                       help="TCO brutto − wartość rezydualna = realny koszt posiadania")
+            c1.metric("RV", f"{rv_ice:,.0f} zł",
+                       delta=f"-{depreciation_ice:,.0f}", delta_color="inverse")
+            c2.metric("Tarcza", f"-{tax_shield_ice:,.0f}")
+            c3.metric("TCO netto", f"{tco_net_ice:,.0f} zł")
         with col_rv2:
-            st.markdown(f"**{bev_model}**")
+            st.markdown(f"**🟠 {hyb_model}**")
             c1, c2, c3 = st.columns(3)
-            c1.metric("Wartość rezydualna (RV)", f"{rv_bev:,.0f} zł",
-                       delta=f"-{depreciation_bev:,.0f} zł deprecjacja", delta_color="inverse")
-            c2.metric("Tarcza podatkowa", f"-{tax_shield_bev:,.0f} zł")
-            c3.metric("TCO netto (po sprzedaży)", f"{tco_net_bev:,.0f} zł",
-                       help="TCO brutto − wartość rezydualna = realny koszt posiadania")
+            c1.metric("RV", f"{rv_hyb:,.0f} zł",
+                       delta=f"-{depreciation_hyb:,.0f}", delta_color="inverse")
+            c2.metric("Tarcza", f"-{tax_shield_hyb:,.0f}")
+            c3.metric("TCO netto", f"{tco_net_hyb:,.0f} zł")
+        with col_rv3:
+            st.markdown(f"**🟢 {bev_model}**")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("RV", f"{rv_bev:,.0f} zł",
+                       delta=f"-{depreciation_bev:,.0f}", delta_color="inverse")
+            c2.metric("Tarcza", f"-{tax_shield_bev:,.0f}")
+            c3.metric("TCO netto", f"{tco_net_bev:,.0f} zł")
 
         if period_years >= 8 and (not is_new_bev or not is_new_ice):
             pass  # używane — próg baterii może nie mieć zastosowania
@@ -1925,52 +2258,62 @@ if st.session_state.get("tco_calculated", False):
 
         # --- Rozbicie tarczy podatkowej ---
         if use_tax_shield and tax_data_ice and tax_data_bev and usage_type != "prywatne":
-            with st.expander("Rozbicie tarczy podatkowej – ICE vs BEV"):
-                tc1, tc2 = st.columns(2)
-                with tc1:
-                    st.markdown(f"**{ice_model}** (limit: **{tax_data_ice['limit']:,.0f} zł**)")
-                    for label, val in tax_data_ice["breakdown"].items():
-                        if val > 0:
-                            st.markdown(f"- {label}: **{val:,.0f} zł**")
-                    st.markdown(f"- **SUMA tarcza: {tax_shield_ice:,.0f} zł** za {period_years} lata")
-                    st.caption(f"VAT paliwo: {tax_data_ice['vat_fuel_pct']:.0%} | KUP: {tax_data_ice['kup_pct']:.0%}")
-                with tc2:
-                    st.markdown(f"**{bev_model}** (limit: **{tax_data_bev['limit']:,.0f} zł**)")
-                    for label, val in tax_data_bev["breakdown"].items():
-                        if val > 0:
-                            st.markdown(f"- {label}: **{val:,.0f} zł**")
-                    st.markdown(f"- **SUMA tarcza: {tax_shield_bev:,.0f} zł** za {period_years} lata")
-                    st.caption(f"VAT energia: {tax_data_bev['vat_fuel_pct']:.0%} | KUP: {tax_data_bev['kup_pct']:.0%}")
-                adv = tax_shield_bev - tax_shield_ice
-                if adv > 0:
-                    st.success(f"BEV ma o **{adv:,.0f} zł** większą tarczę podatkową (wyższy limit + 100% VAT od energii)")
+            with st.expander("Rozbicie tarczy podatkowej – ICE vs HYB vs BEV"):
+                tc1, tc2, tc3 = st.columns(3)
+                for _tc, _name, _td, _ts in [
+                    (tc1, ice_model, tax_data_ice, tax_shield_ice),
+                    (tc2, hyb_model, tax_data_hyb, tax_shield_hyb),
+                    (tc3, bev_model, tax_data_bev, tax_shield_bev),
+                ]:
+                    with _tc:
+                        if _td:
+                            st.markdown(f"**{_name}** (limit: **{_td['limit']:,.0f} zł**)")
+                            for label, val in _td["breakdown"].items():
+                                if val > 0:
+                                    st.markdown(f"- {label}: **{val:,.0f} zł**")
+                            st.markdown(f"- **SUMA: {_ts:,.0f} zł** / {period_years} lata")
+                best_tax = max(tax_shield_ice, tax_shield_hyb, tax_shield_bev)
+                if best_tax > min(tax_shield_ice, tax_shield_hyb, tax_shield_bev):
+                    winner = "BEV" if best_tax == tax_shield_bev else ("HYB" if best_tax == tax_shield_hyb else "ICE")
+                    st.success(f"{winner} ma największą tarczę podatkową: **{best_tax:,.0f} zł**")
 
         st.markdown("---")
-        col_a, col_b, col_c = st.columns(3)
+        col_a, col_b, col_c, col_d = st.columns(4)
         with col_a:
             st.metric(f"Koszt / km – {ice_model.split()[0]}", f"{cost_per_km_ice:.2f} zł",
                        help="TCO netto / km (po odliczeniu RV i tarczy)")
         with col_b:
-            st.metric(f"Koszt / km – {bev_model.split()[0]}", f"{cost_per_km_bev:.2f} zł",
+            st.metric(f"Koszt / km – {hyb_model.split()[0]}", f"{cost_per_km_hyb:.2f} zł",
                        help="TCO netto / km (po odliczeniu RV i tarczy)")
         with col_c:
-            diff = tco_net_ice - tco_net_bev
+            st.metric(f"Koszt / km – {bev_model.split()[0]}", f"{cost_per_km_bev:.2f} zł",
+                       help="TCO netto / km (po odliczeniu RV i tarczy)")
+        with col_d:
+            best_tco = min(tco_net_ice, tco_net_hyb, tco_net_bev)
+            best_name = "ICE" if best_tco == tco_net_ice else ("HYB" if best_tco == tco_net_hyb else "BEV")
+            worst_tco = max(tco_net_ice, tco_net_hyb, tco_net_bev)
+            savings = worst_tco - best_tco
             st.metric(
-                "Oszczędność BEV vs ICE (netto)", f"{abs(diff):,.0f} zł",
-                delta=f"{'BEV tańsze' if diff > 0 else 'ICE tańsze'}",
-                delta_color="normal" if diff > 0 else "inverse",
+                f"Najtańszy: {best_name}", f"{savings:,.0f} zł",
+                delta=f"oszczędność vs najdroższy",
+                delta_color="normal",
             )
 
         categories = ["Finansowanie", "Paliwo / Prąd", "Serwis", "Ubezpieczenie",
                        "Tarcza podatkowa", "Wart. rezydualna (RV)", "TCO brutto", "TCO NETTO"]
         ice_vals = [total_acquisition_ice, fuel_cost_total, maint_ice, insurance_ice,
                     -tax_shield_ice, -rv_ice, tco_ice, tco_net_ice]
+        hyb_vals = [total_acquisition_hyb, hyb_energy_cost_total, maint_hyb, insurance_hyb,
+                    -tax_shield_hyb, -rv_hyb, tco_hyb, tco_net_hyb]
         bev_vals = [total_acquisition_bev, energy_cost_total, maint_bev, insurance_bev,
                     -tax_shield_bev, -rv_bev, tco_bev, tco_net_bev]
 
         fig_bar = go.Figure()
         fig_bar.add_trace(go.Bar(
             name=f"ICE – {ice_model}", x=categories, y=ice_vals, marker_color="#ef4444",
+        ))
+        fig_bar.add_trace(go.Bar(
+            name=f"HYB – {hyb_model}", x=categories, y=hyb_vals, marker_color="#f59e0b",
         ))
         fig_bar.add_trace(go.Bar(
             name=f"BEV – {bev_model}", x=categories, y=bev_vals, marker_color="#22c55e",
@@ -1982,10 +2325,11 @@ if st.session_state.get("tco_calculated", False):
         st.plotly_chart(fig_bar, use_container_width=True)
 
         months_range = list(range(1, period_years * 12 + 1))
-        ice_cum, bev_cum = [], []
+        ice_cum, hyb_cum, bev_cum = [], [], []
         for mo in months_range:
             frac = mo / (period_years * 12)
             ice_cum.append(total_acquisition_ice + (fuel_cost_total + maint_ice + insurance_ice) * frac - tax_shield_ice * frac)
+            hyb_cum.append(total_acquisition_hyb + (hyb_energy_cost_total + maint_hyb + insurance_hyb) * frac - tax_shield_hyb * frac)
             bev_cum.append(total_acquisition_bev + (energy_cost_total + maint_bev + insurance_bev) * frac - tax_shield_bev * frac)
 
         fig_line = go.Figure()
@@ -1994,51 +2338,127 @@ if st.session_state.get("tco_calculated", False):
             line=dict(color="#ef4444", width=3),
         ))
         fig_line.add_trace(go.Scatter(
+            x=months_range, y=hyb_cum, name=f"HYB – {hyb_model} (brutto)",
+            line=dict(color="#f59e0b", width=3),
+        ))
+        fig_line.add_trace(go.Scatter(
             x=months_range, y=bev_cum, name=f"BEV – {bev_model} (brutto)",
             line=dict(color="#22c55e", width=3),
         ))
         # RV markers at end – show netto after resale
         last_mo = months_range[-1]
         fig_line.add_trace(go.Scatter(
-            x=[last_mo, last_mo], y=[tco_net_ice, tco_net_bev],
+            x=[last_mo, last_mo, last_mo],
+            y=[tco_net_ice, tco_net_hyb, tco_net_bev],
             mode="markers+text", name="TCO netto (po sprzedaży)",
-            marker=dict(size=14, symbol="star", color=["#ef4444", "#22c55e"],
+            marker=dict(size=14, symbol="star",
+                        color=["#ef4444", "#f59e0b", "#22c55e"],
                         line=dict(width=2, color="black")),
-            text=[f"netto: {tco_net_ice:,.0f}", f"netto: {tco_net_bev:,.0f}"],
-            textposition=["top right", "bottom right"],
+            text=[f"netto: {tco_net_ice:,.0f}", f"netto: {tco_net_hyb:,.0f}",
+                  f"netto: {tco_net_bev:,.0f}"],
+            textposition=["top right", "middle right", "bottom right"],
         ))
+
+        # Breakeven detection – punkt przecięcia dla każdej pary
+        def _find_breakeven(cum_a, cum_b, months):
+            """Find first crossover between two cumulative cost arrays."""
+            for i in range(1, len(months)):
+                if (cum_a[i - 1] - cum_b[i - 1]) * (cum_a[i] - cum_b[i]) < 0:
+                    d0 = cum_a[i - 1] - cum_b[i - 1]
+                    d1 = cum_a[i] - cum_b[i]
+                    frac_be = d0 / (d0 - d1)
+                    be_month = months[i - 1] + frac_be
+                    be_cost = cum_a[i - 1] + frac_be * (cum_a[i] - cum_a[i - 1])
+                    return be_month, be_cost
+            return None, None
+
+        breakeven_pairs = [
+            ("ICE↔BEV", ice_cum, bev_cum, "#7c3aed", -40),
+            ("ICE↔HYB", ice_cum, hyb_cum, "#dc2626", -70),
+            ("HYB↔BEV", hyb_cum, bev_cum, "#059669", -100),
+        ]
+        breakeven_messages = []
+        for pair_name, cum_a, cum_b, color, ay_offset in breakeven_pairs:
+            be_month, be_cost = _find_breakeven(cum_a, cum_b, months_range)
+            if be_month is not None:
+                cheaper = pair_name.split("↔")[1] if cum_b[-1] < cum_a[-1] else pair_name.split("↔")[0]
+                fig_line.add_annotation(
+                    x=be_month, y=be_cost,
+                    text=f"{pair_name}: {be_month:.0f}. mies.",
+                    showarrow=True, arrowhead=2, ax=50, ay=ay_offset,
+                    font=dict(size=11, color=color, weight="bold"),
+                    bgcolor="white", bordercolor=color, borderwidth=2, borderpad=3,
+                )
+                fig_line.add_trace(go.Scatter(
+                    x=[be_month], y=[be_cost],
+                    mode="markers", name=f"BE {pair_name}",
+                    marker=dict(size=10, color=color, symbol="diamond",
+                                line=dict(width=2, color="black")),
+                    showlegend=False,
+                ))
+                breakeven_messages.append(
+                    f"**{pair_name}**: breakeven w **{be_month:.0f}. miesiącu** → {cheaper} tańszy"
+                )
+
         fig_line.update_layout(
             title="Koszt narastający w czasie (gwiazdki = TCO netto po sprzedaży auta)",
-            xaxis_title="Miesiąc", yaxis_title="Koszt skumulowany (PLN)", height=450,
+            xaxis_title="Miesiąc", yaxis_title="Koszt skumulowany (PLN)", height=500,
         )
         st.plotly_chart(fig_line, use_container_width=True)
+
+        # Breakeven info messages
+        if breakeven_messages:
+            st.info("📊 **Punkty breakeven:**\n\n" + "\n\n".join(breakeven_messages))
+        else:
+            ordered = sorted(
+                [("ICE", ice_cum[-1]), ("HYB", hyb_cum[-1]), ("BEV", bev_cum[-1])],
+                key=lambda x: x[1],
+            )
+            st.info(
+                f"📊 **Brak punktów breakeven** — kolejność od najtańszego przez cały okres: "
+                f"{ordered[0][0]} → {ordered[1][0]} → {ordered[2][0]}"
+            )
 
     with tab2:
         st.subheader("Wpływ temperatury na roczne zużycie")
 
-        col_t1, col_t2 = st.columns(2)
+        col_t1, col_t2, col_t3 = st.columns(3)
         with col_t1:
+            st.markdown("**🟢 BEV**")
             st.metric(
-                "BEV: narzut temperaturowy (roczny)",
+                "Narzut temperaturowy",
                 f"+{bev_temp_penalty_pct:.1f}%",
                 delta=f"+{annual_energy_demand - nominal_bev_annual:.0f} kWh / rok",
                 delta_color="inverse",
             )
-            st.metric("BEV: zużycie nominalne (15°C)", f"{nominal_bev_annual:.0f} kWh/rok")
-            st.metric("BEV: zużycie rzeczywiste (z temp.)", f"{annual_energy_demand:.0f} kWh/rok")
+            st.metric("Nominalne (15°C)", f"{nominal_bev_annual:.0f} kWh/rok")
+            st.metric("Rzeczywiste (z temp.)", f"{annual_energy_demand:.0f} kWh/rok")
         with col_t2:
+            st.markdown("**🟠 Hybryda (paliwo)**")
             st.metric(
-                "ICE: narzut temperaturowy (roczny)",
+                "Narzut temperaturowy",
+                f"+{hyb_temp_penalty_pct:.1f}%",
+                delta=f"+{hyb_liters_annual - nominal_hyb_liters:.0f} l / rok",
+                delta_color="inverse",
+            )
+            st.metric("Nominalne", f"{nominal_hyb_liters:.0f} l/rok")
+            st.metric("Rzeczywiste (z temp.)", f"{hyb_liters_annual:.0f} l/rok")
+            if hyb_type == "PHEV" and hyb_elec_demand > 0:
+                st.caption(f"PHEV: {hyb_elec_pct*100:.0f}% jazdy na prądzie → {hyb_elec_demand:.0f} kWh/rok")
+        with col_t3:
+            st.markdown("**🔴 ICE**")
+            st.metric(
+                "Narzut temperaturowy",
                 f"+{ice_temp_penalty_pct:.1f}%",
                 delta=f"+{ice_liters_annual - nominal_ice_liters:.0f} l / rok",
                 delta_color="inverse",
             )
-            st.metric("ICE: spalanie nominalne", f"{nominal_ice_liters:.0f} l/rok")
-            st.metric("ICE: spalanie rzeczywiste (z temp.)", f"{ice_liters_annual:.0f} l/rok")
+            st.metric("Nominalne", f"{nominal_ice_liters:.0f} l/rok")
+            st.metric("Rzeczywiste (z temp.)", f"{ice_liters_annual:.0f} l/rok")
 
         fig_temp = make_subplots(
             rows=2, cols=1, shared_xaxes=True,
-            subplot_titles=("BEV: zużycie miesięczne (kWh)", "ICE: spalanie miesięczne (litry)"),
+            subplot_titles=("BEV: zużycie miesięczne (kWh)", "ICE / HYB: spalanie miesięczne (litry)"),
             vertical_spacing=0.12,
         )
 
@@ -2060,6 +2480,12 @@ if st.session_state.get("tco_calculated", False):
         fig_temp.add_trace(go.Bar(
             x=MONTH_NAMES_PL, y=ice_monthly_liters, name="ICE z temp.",
             marker_color="#ef4444",
+        ), row=2, col=1)
+        # Hybrid fuel monthly line
+        fig_temp.add_trace(go.Scatter(
+            x=MONTH_NAMES_PL, y=hyb_monthly_liters, name="HYB z temp.",
+            line=dict(color="#f59e0b", width=2, dash="dash"),
+            mode="lines+markers",
         ), row=2, col=1)
 
         fig_temp.add_trace(go.Scatter(
@@ -2105,12 +2531,15 @@ if st.session_state.get("tco_calculated", False):
         fig_pie.update_layout(title="Udział źródeł energii w ładowaniu BEV", height=450)
         st.plotly_chart(fig_pie, use_container_width=True)
 
-        col_e1, col_e2, col_e3 = st.columns(3)
+        col_e1, col_e2, col_e3, col_e4 = st.columns(4)
         with col_e1:
             st.metric("Roczny koszt energii BEV", f"{energy_cost_annual:,.0f} zł")
         with col_e2:
-            st.metric("Roczny koszt paliwa ICE", f"{fuel_cost_annual:,.0f} zł")
+            st.metric("Roczny koszt energii HYB", f"{hyb_energy_cost_annual:,.0f} zł",
+                       help="PHEV: paliwo + prąd; HEV: tylko paliwo")
         with col_e3:
+            st.metric("Roczny koszt paliwa ICE", f"{fuel_cost_annual:,.0f} zł")
+        with col_e4:
             st.metric(
                 "Godziny z ujemną ceną prądu",
                 f"{charging_result['negative_hours_used']}",
@@ -2189,10 +2618,12 @@ if st.session_state.get("tco_calculated", False):
 
         avg_bev_real = annual_energy_demand / annual_mileage * 100 if annual_mileage > 0 else 0
         avg_ice_real = ice_liters_annual / annual_mileage * 100 if annual_mileage > 0 else 0
+        avg_hyb_fuel_real = hyb_liters_annual / (annual_mileage * (1 - hyb_elec_pct if hyb_type == "PHEV" else 0) or annual_mileage) * 100 if annual_mileage > 0 else 0
 
         # Build detail rows
         detail_cats = [
             "Pojazd",
+            "Typ napędu",
             "Stan",
             "Forma finansowania",
             "Wartość auta (brutto)",
@@ -2200,13 +2631,23 @@ if st.session_state.get("tco_calculated", False):
         ]
         ice_detail = [
             ice_model,
+            "ICE (spalinowy)",
             "Nowy" if is_new_ice else "Używany",
             financing_mode_ice,
             f"{vehicle_value_ice:,.0f} zł",
             f"{total_acquisition_ice:,.0f} zł",
         ]
+        hyb_detail = [
+            hyb_model,
+            f"{hyb_type} ({'pełna hybryda' if hyb_type == 'HEV' else 'plug-in'})",
+            "Nowy" if is_new_hyb else "Używany",
+            financing_mode_hyb,
+            f"{vehicle_value_hyb:,.0f} zł",
+            f"{total_acquisition_hyb:,.0f} zł",
+        ]
         bev_detail = [
             bev_model,
+            "BEV (elektryczny)",
             "Nowy" if is_new_bev else "Używany",
             financing_mode_bev,
             f"{vehicle_value_bev:,.0f} zł",
@@ -2214,7 +2655,7 @@ if st.session_state.get("tco_calculated", False):
         ]
 
         # Leasing breakdown rows
-        if leasing_ice or leasing_bev:
+        if leasing_ice or leasing_hyb or leasing_bev:
             detail_cats += [
                 "  Wpłata własna (brutto)",
                 "  Raty łącznie (brutto)",
@@ -2223,7 +2664,7 @@ if st.session_state.get("tco_calculated", False):
                 "  Wykup (brutto)",
                 "  Rata miesięczna (netto)",
             ]
-            for ldata, vals in [(leasing_ice, ice_detail), (leasing_bev, bev_detail)]:
+            for ldata, vals in [(leasing_ice, ice_detail), (leasing_hyb, hyb_detail), (leasing_bev, bev_detail)]:
                 if ldata:
                     vals += [
                         f"{ldata['down_brutto']:,.0f} zł",
@@ -2256,6 +2697,16 @@ if st.session_state.get("tco_calculated", False):
             "",
             f"{rv_ice:,.0f} zł",
         ]
+        hyb_detail += [
+            f"{hyb_energy_cost_total:,.0f} zł",
+            f"{maint_hyb:,.0f} zł",
+            f"{insurance_hyb:,.0f} zł",
+            f"{depreciation_hyb:,.0f} zł",
+            f"-{tax_shield_hyb:,.0f} zł",
+            f"{tco_hyb:,.0f} zł",
+            "",
+            f"{rv_hyb:,.0f} zł",
+        ]
         bev_detail += [
             f"{energy_cost_total:,.0f} zł",
             f"{maint_bev:,.0f} zł",
@@ -2268,10 +2719,15 @@ if st.session_state.get("tco_calculated", False):
         ]
 
         # Buyout tax row if applicable
-        if buyout_tax_ice > 0 or buyout_tax_bev > 0:
+        if buyout_tax_ice > 0 or buyout_tax_hyb > 0 or buyout_tax_bev > 0:
             detail_cats.append("Podatek od sprzedaży (wykup prywatny)")
             ice_detail.append(f"{buyout_tax_ice:,.0f} zł" if buyout_tax_ice > 0 else "—")
+            hyb_detail.append(f"{buyout_tax_hyb:,.0f} zł" if buyout_tax_hyb > 0 else "—")
             bev_detail.append(f"{buyout_tax_bev:,.0f} zł" if buyout_tax_bev > 0 else "—")
+
+        hyb_consumption_str = f"{avg_hyb_fuel_real:.1f} l/100km"
+        if hyb_type == "PHEV" and hyb_elec_pct > 0:
+            hyb_consumption_str += f" + {hyb_elec_pct*100:.0f}% prąd"
 
         detail_cats += [
             "TCO NETTO (realny koszt posiadania)",
@@ -2287,6 +2743,13 @@ if st.session_state.get("tco_calculated", False):
             f"{avg_ice_real:.1f} l/100km",
             f"+{ice_temp_penalty_pct:.1f}%",
         ]
+        hyb_detail += [
+            f"{tco_net_hyb:,.0f} zł",
+            f"{cost_per_km_hyb:.2f} zł",
+            "",
+            hyb_consumption_str,
+            f"+{hyb_temp_penalty_pct:.1f}%",
+        ]
         bev_detail += [
             f"{tco_net_bev:,.0f} zł",
             f"{cost_per_km_bev:.2f} zł",
@@ -2297,8 +2760,9 @@ if st.session_state.get("tco_calculated", False):
 
         df_detail = pd.DataFrame({
             "Kategoria": detail_cats,
-            "ICE": ice_detail,
-            "BEV": bev_detail,
+            "🔴 ICE": ice_detail,
+            "🟠 HYB": hyb_detail,
+            "🟢 BEV": bev_detail,
         })
         # Dodaj wiersze podatkowe jeśli aktywne
         if use_tax_shield and tax_data_ice and tax_data_bev:
@@ -2310,14 +2774,21 @@ if st.session_state.get("tco_calculated", False):
                     "KUP (koszty uzyskania)",
                     "Użytkowanie pojazdu",
                 ],
-                "ICE": [
+                "🔴 ICE": [
                     "",
                     f"{tax_data_ice['limit']:,.0f} zł",
                     f"{tax_data_ice['vat_fuel_pct']:.0%}",
                     f"{tax_data_ice['kup_pct']:.0%}",
                     usage_type,
                 ],
-                "BEV": [
+                "🟠 HYB": [
+                    "",
+                    f"{tax_data_hyb['limit']:,.0f} zł" if tax_data_hyb else "—",
+                    f"{tax_data_hyb['vat_fuel_pct']:.0%}" if tax_data_hyb else "—",
+                    f"{tax_data_hyb['kup_pct']:.0%}" if tax_data_hyb else "—",
+                    usage_type,
+                ],
+                "🟢 BEV": [
                     "",
                     f"{tax_data_bev['limit']:,.0f} zł",
                     f"{tax_data_bev['vat_fuel_pct']:.0%}",
@@ -2332,53 +2803,40 @@ if st.session_state.get("tco_calculated", False):
         # --- ROZBICIE KOSZTÓW SERWISOWYCH ---
         st.subheader("Rozbicie kosztów serwisowych")
 
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            st.markdown(f"**{ice_model} – serwis i naprawy**")
-            if maint_ice_data["breakdown"]:
-                breakdown_rows = [
-                    {"Kategoria": k, "Koszt (zł)": f"{v:,.0f}"}
-                    for k, v in maint_ice_data["breakdown"].items()
-                    if v > 0
-                ]
-                breakdown_rows.append({
-                    "Kategoria": "RAZEM",
-                    "Koszt (zł)": f"{maint_ice:,.0f}",
-                })
-                st.dataframe(
-                    pd.DataFrame(breakdown_rows),
-                    hide_index=True, use_container_width=True,
-                )
-                st.caption(f"Koszt serwisowy: {maint_ice_data['per_km']:.2f} zł/km")
-
-        with col_m2:
-            st.markdown(f"**{bev_model} – serwis i naprawy**")
-            if maint_bev_data["breakdown"]:
-                breakdown_rows = [
-                    {"Kategoria": k, "Koszt (zł)": f"{v:,.0f}"}
-                    for k, v in maint_bev_data["breakdown"].items()
-                    if v > 0
-                ]
-                breakdown_rows.append({
-                    "Kategoria": "RAZEM",
-                    "Koszt (zł)": f"{maint_bev:,.0f}",
-                })
-                st.dataframe(
-                    pd.DataFrame(breakdown_rows),
-                    hide_index=True, use_container_width=True,
-                )
-                st.caption(f"Koszt serwisowy: {maint_bev_data['per_km']:.2f} zł/km")
-                if maint_bev_data.get("tesla_warranty"):
-                    st.info(f"Tesla: gwarancja na zawieszenie i hamulce do {TESLA_WARRANTY_KM:,} km – "
-                            f"brak kosztów tych komponentów w okresie gwarancyjnym.")
+        col_m1, col_m2, col_m3 = st.columns(3)
+        for _col, _name, _data, _total in [
+            (col_m1, ice_model, maint_ice_data, maint_ice),
+            (col_m2, hyb_model, maint_hyb_data, maint_hyb),
+            (col_m3, bev_model, maint_bev_data, maint_bev),
+        ]:
+            with _col:
+                st.markdown(f"**{_name} – serwis**")
+                if _data["breakdown"]:
+                    breakdown_rows = [
+                        {"Kategoria": k, "Koszt (zł)": f"{v:,.0f}"}
+                        for k, v in _data["breakdown"].items()
+                        if v > 0
+                    ]
+                    breakdown_rows.append({
+                        "Kategoria": "RAZEM",
+                        "Koszt (zł)": f"{_total:,.0f}",
+                    })
+                    st.dataframe(
+                        pd.DataFrame(breakdown_rows),
+                        hide_index=True, use_container_width=True,
+                    )
+                    st.caption(f"Koszt serwisowy: {_data['per_km']:.2f} zł/km")
+                    if _data.get("tesla_warranty"):
+                        st.info(f"Tesla: gwarancja do {TESLA_WARRANTY_KM:,} km")
 
         # Pie chart serwisowy
         fig_maint = make_subplots(
-            rows=1, cols=2,
-            subplot_titles=(f"ICE: {ice_model}", f"BEV: {bev_model}"),
-            specs=[[{"type": "pie"}, {"type": "pie"}]],
+            rows=1, cols=3,
+            subplot_titles=(f"ICE: {ice_model}", f"HYB: {hyb_model}", f"BEV: {bev_model}"),
+            specs=[[{"type": "pie"}, {"type": "pie"}, {"type": "pie"}]],
         )
         ice_bd = {k: v for k, v in maint_ice_data["breakdown"].items() if v > 0}
+        hyb_bd = {k: v for k, v in maint_hyb_data["breakdown"].items() if v > 0}
         bev_bd = {k: v for k, v in maint_bev_data["breakdown"].items() if v > 0}
 
         if ice_bd:
@@ -2386,11 +2844,16 @@ if st.session_state.get("tco_calculated", False):
                 labels=list(ice_bd.keys()), values=list(ice_bd.values()),
                 hole=0.3, textinfo="label+percent",
             ), row=1, col=1)
+        if hyb_bd:
+            fig_maint.add_trace(go.Pie(
+                labels=list(hyb_bd.keys()), values=list(hyb_bd.values()),
+                hole=0.3, textinfo="label+percent",
+            ), row=1, col=2)
         if bev_bd:
             fig_maint.add_trace(go.Pie(
                 labels=list(bev_bd.keys()), values=list(bev_bd.values()),
                 hole=0.3, textinfo="label+percent",
-            ), row=1, col=2)
+            ), row=1, col=3)
         fig_maint.update_layout(
             title="Struktura kosztów serwisowych",
             height=400, showlegend=False,
@@ -2398,9 +2861,9 @@ if st.session_state.get("tco_calculated", False):
         st.plotly_chart(fig_maint, use_container_width=True)
 
         st.caption(
-            "Obliczenia uwzględniają: limity podatkowe 2026 (ICE: 100k zł, BEV: 225k zł), "
+            "Obliczenia uwzględniają: limity podatkowe 2026 (ICE/HEV: 100k zł, PHEV/BEV: 225k zł), "
             "optymalizację ładowania HiGHS z taryfą dynamiczną RDN, wpływ temperatury "
-            "na zużycie obu napędów, oraz rozbicie kosztów serwisowych. "
+            "na zużycie wszystkich napędów, oraz rozbicie kosztów serwisowych. "
             "Ceny paliw aktualizowane z e-petrol.pl."
         )
 
@@ -2504,7 +2967,7 @@ if st.session_state.get("tco_calculated", False):
         # --- Korekta real-world ---
         st.subheader("Korekta real-world (ML)")
         rw_bev, rw_ice = predict_realworld(ml, city_pct, annual_mileage, has_home_charger, pv_kwp)
-        col_rw1, col_rw2 = st.columns(2)
+        col_rw1, col_rw2, col_rw3 = st.columns(3)
         with col_rw1:
             nominal_bev = pct_city_n * bev_city_kwh + pct_rural_n * bev_highway_kwh + pct_highway_n * bev_highway_kwh * HIGHWAY_SPEED_MULTIPLIER_BEV
             corrected_bev = nominal_bev * rw_bev
@@ -2515,6 +2978,17 @@ if st.session_state.get("tco_calculated", False):
                 delta_color="inverse",
             )
         with col_rw2:
+            # Hybrid uses ICE-like correction with slightly lower factor (better efficiency)
+            rw_hyb = 1 + (rw_ice - 1) * 0.8  # HYB runs more efficiently due to recuperation
+            nominal_hyb = pct_city_n * hyb_city_l + pct_rural_n * hyb_highway_l + pct_highway_n * hyb_highway_l * HIGHWAY_SPEED_MULTIPLIER_ICE
+            corrected_hyb = nominal_hyb * rw_hyb
+            st.metric(
+                f"HYB: mnożnik ×{rw_hyb:.2f}",
+                f"{corrected_hyb:.1f} L/100km",
+                delta=f"+{(rw_hyb - 1) * 100:.0f}% vs katalog ({nominal_hyb:.1f})",
+                delta_color="inverse",
+            )
+        with col_rw3:
             nominal_ice = pct_city_n * ice_city_l + pct_rural_n * ice_highway_l + pct_highway_n * ice_highway_l * HIGHWAY_SPEED_MULTIPLIER_ICE
             corrected_ice = nominal_ice * rw_ice
             st.metric(
@@ -2536,14 +3010,34 @@ if st.session_state.get("tco_calculated", False):
             ice_city_l, ice_highway_l, fuel_price,
             annual_mileage,
         )
+        # Approximate hybrid monthly costs using seasonal pattern from ICE/BEV
+        hyb_monthly_fc = []
+        for i, row in df_forecast.iterrows():
+            if hyb_type == "PHEV" and hyb_elec_pct > 0:
+                # PHEV: weighted mix of BEV and ICE seasonal patterns
+                ice_ratio = row["ICE (zł)"] / (total_ice_fc_raw := sum(df_forecast["ICE (zł)"])) if sum(df_forecast["ICE (zł)"]) > 0 else 1/12
+                bev_ratio = row["BEV (zł)"] / (total_bev_fc_raw := sum(df_forecast["BEV (zł)"])) if sum(df_forecast["BEV (zł)"]) > 0 else 1/12
+                fuel_part = hyb_fuel_cost_annual * ice_ratio
+                elec_part = (hyb_energy_cost_annual - hyb_fuel_cost_annual) * bev_ratio
+                hyb_monthly_fc.append(round(fuel_part + elec_part, 0))
+            else:
+                # HEV: same seasonal pattern as ICE
+                ice_ratio = row["ICE (zł)"] / sum(df_forecast["ICE (zł)"]) if sum(df_forecast["ICE (zł)"]) > 0 else 1/12
+                hyb_monthly_fc.append(round(hyb_energy_cost_annual * ice_ratio, 0))
+        df_forecast["HYB (zł)"] = hyb_monthly_fc
+
         fig_fc = go.Figure()
-        fig_fc.add_trace(go.Bar(
-            x=df_forecast["Miesiąc"], y=df_forecast["BEV (zł)"],
-            name="BEV", marker_color="#3b82f6",
-        ))
         fig_fc.add_trace(go.Bar(
             x=df_forecast["Miesiąc"], y=df_forecast["ICE (zł)"],
             name="ICE", marker_color="#ef4444",
+        ))
+        fig_fc.add_trace(go.Bar(
+            x=df_forecast["Miesiąc"], y=df_forecast["HYB (zł)"],
+            name="HYB", marker_color="#f59e0b",
+        ))
+        fig_fc.add_trace(go.Bar(
+            x=df_forecast["Miesiąc"], y=df_forecast["BEV (zł)"],
+            name="BEV", marker_color="#22c55e",
         ))
         fig_fc.update_layout(
             title="Miesięczne koszty energii/paliwa (z sezonowością)",
@@ -2552,14 +3046,19 @@ if st.session_state.get("tco_calculated", False):
         st.plotly_chart(fig_fc, use_container_width=True)
 
         total_bev_fc = sum(df_forecast["BEV (zł)"])
+        total_hyb_fc = sum(df_forecast["HYB (zł)"])
         total_ice_fc = sum(df_forecast["ICE (zł)"])
-        col_fc1, col_fc2, col_fc3 = st.columns(3)
+        col_fc1, col_fc2, col_fc3, col_fc4 = st.columns(4)
         with col_fc1:
-            st.metric("BEV roczny", f"{total_bev_fc:,.0f} zł")
-        with col_fc2:
             st.metric("ICE roczny", f"{total_ice_fc:,.0f} zł")
+        with col_fc2:
+            st.metric("HYB roczny", f"{total_hyb_fc:,.0f} zł")
         with col_fc3:
-            st.metric("Oszczędność", f"{total_ice_fc - total_bev_fc:,.0f} zł/rok")
+            st.metric("BEV roczny", f"{total_bev_fc:,.0f} zł")
+        with col_fc4:
+            best_fc = min(total_ice_fc, total_hyb_fc, total_bev_fc)
+            worst_fc = max(total_ice_fc, total_hyb_fc, total_bev_fc)
+            st.metric("Max oszczędność", f"{worst_fc - best_fc:,.0f} zł/rok")
 
         st.dataframe(df_forecast, use_container_width=True, hide_index=True)
 
