@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "0.10.0"
+APP_VERSION = "0.11.0"
 
 import streamlit as st
 import numpy as np
@@ -44,6 +44,12 @@ with st.sidebar:
         "[LinkedIn](https://www.linkedin.com/in/pawelmamcarz/) | "
         "[pawel@mamcarz.com](mailto:pawel@mamcarz.com) | "
         "+48 535 535 221"
+    )
+    st.markdown("---")
+    st.markdown(
+        "**Solver:** [HiGHS](https://highs.dev/) MILP\n\n"
+        "Mixed-Integer Linear Programming do optymalizacji "
+        "harmonogramu ładowania BEV. Taryfa G14dynamic."
     )
     st.caption(f"© 2026 Paweł Mamcarz. Wszelkie prawa zastrzeżone. v{APP_VERSION}")
 
@@ -130,6 +136,32 @@ MONTH_NAMES_PL = ["Sty", "Lut", "Mar", "Kwi", "Maj", "Cze",
                   "Lip", "Sie", "Wrz", "Paź", "Lis", "Gru"]
 TEMPS_PL = [-2, -1, 3, 8, 14, 17, 19, 18, 14, 9, 4, 0]
 DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+# ---------------------------------------------------------------------------
+# G14dynamic – opłata dystrybucyjna wg pory dnia (zł/kWh)
+# ---------------------------------------------------------------------------
+G14_DIST_BY_HOUR = (
+    [0.0118] * 6 +   # 00-06: dark green (noc)
+    [0.0470] * 4 +   # 06-10: light green (poranek)
+    [0.3528] * 4 +   # 10-14: yellow (szczyt dzienny)
+    [0.0470] * 3 +   # 14-17: light green (popołudnie)
+    [2.3521] * 4 +   # 17-21: red (szczyt wieczorny)
+    [0.0470] * 3     # 21-24: light green (wieczór)
+)
+
+# ---------------------------------------------------------------------------
+# GreenWay 2026 – plany abonamentowe DC
+# ---------------------------------------------------------------------------
+GREENWAY_PLANS = {
+    "Standard": {"monthly_fee": 0.00, "dc_per_kwh": 3.15},
+    "Plus":     {"monthly_fee": 29.99, "dc_per_kwh": 2.40},
+    "Max":      {"monthly_fee": 79.99, "dc_per_kwh": 2.10},
+}
+
+# ---------------------------------------------------------------------------
+# Pompa ciepła (PC) – szacunkowe roczne zużycie prądu
+# ---------------------------------------------------------------------------
+HEAT_PUMP_ANNUAL_KWH = 4500  # typowa PC w domu 100-140 m², COP ~3.5
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +289,27 @@ def calc_annual_fuel_ice(
 
 
 # ---------------------------------------------------------------------------
+# GreenWay – optymalizator planu abonamentowego
+# ---------------------------------------------------------------------------
+
+def greenway_optimal_plan(annual_dc_kwh: float) -> dict:
+    """Wybiera optymalny plan GreenWay na podstawie rocznego zużycia DC."""
+    results = {}
+    for name, plan in GREENWAY_PLANS.items():
+        annual_cost = plan["monthly_fee"] * 12 + plan["dc_per_kwh"] * annual_dc_kwh
+        eff_per_kwh = annual_cost / annual_dc_kwh if annual_dc_kwh > 0 else plan["dc_per_kwh"]
+        results[name] = {
+            "annual_cost": annual_cost,
+            "monthly_total": annual_cost / 12,
+            "effective_per_kwh": eff_per_kwh,
+            "subscription": plan["monthly_fee"],
+            "rate": plan["dc_per_kwh"],
+        }
+    best = min(results, key=lambda k: results[k]["annual_cost"])
+    return {"plans": results, "best": best, "best_data": results[best]}
+
+
+# ---------------------------------------------------------------------------
 # OPTYMALIZACJA ŁADOWANIA BEV – HiGHS LP
 # ---------------------------------------------------------------------------
 
@@ -281,11 +334,15 @@ def optimize_charging(
     PRICE_SUC = dc_price
     PRICE_AC_PUB = ac_pub_price
     PRICE_BESS_CYCLE = 0.02
-    DIST_FEE = 0.30
-
     PV_SELF_COST = 0.0
+
+    # Opłata dystrybucyjna wg pory dnia (G14dynamic lub stała)
     if has_old_pv and pv_kwp > 0:
-        DIST_FEE = 0.08
+        dist_fees_24 = [0.08] * 24
+    elif has_dynamic_tariff:
+        dist_fees_24 = list(G14_DIST_BY_HOUR)
+    else:
+        dist_fees_24 = [0.30] * 24
 
     MONTHS = 12
     HPD = 24
@@ -363,6 +420,8 @@ def optimize_charging(
 
     solver = highspy.Highs()
     solver.silent()
+    solver.setOptionValue('time_limit', 5.0)
+    solver.setOptionValue('mip_rel_gap', 0.05)
     INF = highspy.kHighsInf
 
     max_ac = 11.0
@@ -375,8 +434,9 @@ def optimize_charging(
 
     for s in range(SLOTS):
         d = DAYS[s // HPD]
+        hod = s % HPD
         b = s * 4
-        full_price = (tariff[s] + DIST_FEE) * d
+        full_price = (tariff[s] + dist_fees_24[hod]) * d
 
         costs_arr[b] = full_price;          upper_arr[b] = max_ac
         costs_arr[b + 1] = 0.0;             upper_arr[b + 1] = min(pv_avail[s], max_ac)
@@ -417,7 +477,8 @@ def optimize_charging(
     status = solver.getModelStatus()
 
     if status != highspy.HighsModelStatus.kOptimal:
-        avg_price = float(np.mean(tariff)) + DIST_FEE
+        avg_dist = sum(dist_fees_24) / 24
+        avg_price = float(np.mean(tariff)) + avg_dist
         fallback = home_kwh * avg_price
         total_e = home_kwh + suc_kwh + ac_pub_kwh
         pct_fn = lambda p: 100 * p / total_e if total_e > 0 else 0
@@ -439,7 +500,7 @@ def optimize_charging(
     for s in range(SLOTS):
         d = DAYS[s // HPD]
         b = s * 4
-        pf = tariff[s] + DIST_FEE
+        pf = tariff[s] + dist_fees_24[s % HPD]
 
         ge = cv[b] * d;     pve = cv[b+1] * d
         bce = cv[b+2] * d;  bde = cv[b+3] * d
@@ -909,6 +970,45 @@ with col3:
 with col4:
     pv_kwp = st.number_input("Instalacja PV (kWp)", min_value=0.0, max_value=50.0, value=5.0, step=0.5)
     bess_kwh = st.number_input("Magazyn energii domowy (kWh)", min_value=0.0, max_value=150.0, value=0.0, step=5.0)
+    has_heat_pump = st.checkbox(
+        "Pompa ciepła (PC) w domu", value=False,
+        help=f"Typowe zużycie PC: ~{HEAT_PUMP_ANNUAL_KWH:,} kWh/rok (dom 100-140 m², COP ~3.5). "
+             "Zmienia optymalne proporcje PV:BESS.",
+    )
+
+# BESS Smart Advisor
+if pv_kwp > 0:
+    bess_ratio = 2.0 if has_heat_pump else 1.5
+    recommended_bess = pv_kwp / bess_ratio
+    st.info(
+        f"**BESS Advisor:** PV {pv_kwp:.1f} kWp "
+        f"{'+ pompa ciepła' if has_heat_pump else '(bez PC)'} → "
+        f"ratio PV:BESS = {bess_ratio}:1 → "
+        f"zalecany BESS: **{recommended_bess:.0f} kWh**"
+        + (f" (masz: {bess_kwh:.0f} kWh)" if bess_kwh > 0 else "")
+    )
+
+# Szacunkowe zużycie prądu w domu (PC + BEV)
+if has_heat_pump:
+    est_bev_annual = annual_mileage / 100 * (city_pct * bev_city_kwh + (1 - city_pct) * bev_highway_kwh)
+    est_home_base = 3500  # typowe zużycie domu bez PC i BEV
+    total_home_kwh = est_home_base + HEAT_PUMP_ANNUAL_KWH + est_bev_annual
+    with st.expander("Szacunkowe zużycie prądu w domu"):
+        st.markdown(
+            f"| Źródło | kWh/rok | kWh/mies. |\n"
+            f"| --- | ---: | ---: |\n"
+            f"| Dom (AGD, oświetlenie) | {est_home_base:,.0f} | {est_home_base / 12:.0f} |\n"
+            f"| **Pompa ciepła (PC)** | **{HEAT_PUMP_ANNUAL_KWH:,}** | **{HEAT_PUMP_ANNUAL_KWH / 12:.0f}** |\n"
+            f"| **BEV ładowanie** | **{est_bev_annual:,.0f}** | **{est_bev_annual / 12:.0f}** |\n"
+            f"| **RAZEM** | **{total_home_kwh:,.0f}** | **{total_home_kwh / 12:.0f}** |"
+        )
+        if pv_kwp > 0:
+            pv_annual_est = pv_kwp * 1000  # ~1000 kWh/kWp w Polsce
+            coverage = pv_annual_est / total_home_kwh * 100
+            st.caption(
+                f"PV {pv_kwp} kWp → ~{pv_annual_est:,.0f} kWh/rok → "
+                f"pokrycie: **{coverage:.0f}%** zapotrzebowania domu."
+            )
 
 st.subheader("Taryfa energetyczna i infrastruktura ładowania")
 col5, col6 = st.columns(2)
@@ -924,7 +1024,8 @@ with col5:
         help=(
             "Stare zasady: prosumenci przed 2022 – magazynowanie 1:0.8 w sieci.\n"
             "Nowe zasady: net-billing po cenach rynkowych.\n"
-            "Pstryk: taryfa dynamiczna RDN – ceny godzinowe, czasem ujemne."
+            "Pstryk + G14dynamic: taryfa dynamiczna RDN + opłata dystrybucyjna "
+            "wg pory dnia (dark green 0.01, light green 0.05, yellow 0.35, red 2.35 zł/kWh)."
         ),
     )
     has_dynamic_tariff = "Pstryk" in tariff_option
@@ -1373,6 +1474,46 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
                 f"operator energii dopłacał Ci za pobór prądu!"
             )
 
+        # GreenWay subscription optimizer
+        dc_kwh_annual = annual_energy_demand * charging_result["pct_suc"] / 100
+        if dc_kwh_annual > 0:
+            gw = greenway_optimal_plan(dc_kwh_annual)
+            with st.expander("GreenWay 2026 – optymalny plan abonamentowy"):
+                gw_rows = []
+                for name, data in gw["plans"].items():
+                    marker = " **najlepszy**" if name == gw["best"] else ""
+                    gw_rows.append({
+                        "Plan": f"{name}{marker}",
+                        "Abonament": f"{data['subscription']:.2f} zł/mies.",
+                        "Stawka DC": f"{data['rate']:.2f} zł/kWh",
+                        "Koszt roczny": f"{data['annual_cost']:,.0f} zł",
+                        "Efektywna cena": f"{data['effective_per_kwh']:.2f} zł/kWh",
+                    })
+                st.dataframe(pd.DataFrame(gw_rows), hide_index=True, use_container_width=True)
+                st.caption(
+                    f"Przy {dc_kwh_annual:,.0f} kWh DC/rok optymalny plan to "
+                    f"**GreenWay {gw['best']}** "
+                    f"({gw['best_data']['effective_per_kwh']:.2f} zł/kWh efektywnie)."
+                )
+
+        # G14dynamic distribution tariff info
+        if has_dynamic_tariff:
+            with st.expander("G14dynamic – opłata dystrybucyjna wg pory dnia"):
+                st.markdown(
+                    "| Strefa | Godziny | Opłata dystr. (zł/kWh) | Kolor |\n"
+                    "| --- | --- | ---: | --- |\n"
+                    "| Noc | 00:00–06:00 | 0.0118 | dark green |\n"
+                    "| Poranek | 06:00–10:00 | 0.0470 | light green |\n"
+                    "| Dzień | 10:00–14:00 | 0.3528 | yellow |\n"
+                    "| Popołudnie | 14:00–17:00 | 0.0470 | light green |\n"
+                    "| Szczyt | 17:00–21:00 | 2.3521 | red |\n"
+                    "| Wieczór | 21:00–24:00 | 0.0470 | light green |"
+                )
+                st.caption(
+                    "G14dynamic: opłata dystrybucyjna zmienia się wg pory dnia. "
+                    "HiGHS automatycznie ładuje auto w najtańszych godzinach (noc/poranek)."
+                )
+
     with tab4:
         st.subheader("Szczegółowe zestawienie kosztów")
 
@@ -1717,7 +1858,7 @@ elif "Punkt zwrotny" in opt_mode:
                 i_ice = ins_ice_a * period_years
                 tx_ice = calculate_tax_shield(
                     vehicle_price_ice, "ICE", ice_l_per_km * fp * mil,
-                    ins_ice_a, period_years, tax_rate) if use_tax_shield else 0
+                    ins_ice_a, period_years, tax_rate)["total"] if use_tax_shield else 0
                 tco_i = vehicle_price_ice + f_ice + m_ice + i_ice - tx_ice
 
                 e_bev = bev_energy_per_km * tkm
@@ -1725,7 +1866,7 @@ elif "Punkt zwrotny" in opt_mode:
                 i_bev = ins_bev_a * period_years
                 tx_bev = calculate_tax_shield(
                     vehicle_price_bev, "BEV", bev_energy_per_km * mil,
-                    ins_bev_a, period_years, tax_rate) if use_tax_shield else 0
+                    ins_bev_a, period_years, tax_rate)["total"] if use_tax_shield else 0
                 tco_b = vehicle_price_bev + e_bev + m_bev + i_bev - tx_bev
 
                 diff_matrix[i, j] = tco_i - tco_b  # >0 = BEV wins
@@ -1924,6 +2065,33 @@ else:
                 show_p[c] = show_p[c].apply(lambda x: f"{x:,.0f}")
             show_p["zł/km"] = show_p["zł/km"].apply(lambda x: f"{x:.2f}")
             st.dataframe(show_p, use_container_width=True, hide_index=True)
+
+# ---------------------------------------------------------------------------
+# SŁOWNIK SKRÓTÓW
+# ---------------------------------------------------------------------------
+with st.expander("Słownik skrótów"):
+    st.markdown(
+        "| Skrót | Pełna nazwa | Opis |\n"
+        "| --- | --- | --- |\n"
+        "| **TCO** | Total Cost of Ownership | Całkowity koszt posiadania pojazdu |\n"
+        "| **BEV** | Battery Electric Vehicle | Samochód w pełni elektryczny |\n"
+        "| **ICE** | Internal Combustion Engine | Samochód spalinowy |\n"
+        "| **HEV** | Hybrid Electric Vehicle | Samochód hybrydowy |\n"
+        "| **PV** | Photovoltaic | Fotowoltaika – panele słoneczne |\n"
+        "| **BESS** | Battery Energy Storage System | Magazyn energii domowy |\n"
+        "| **PC** | Pompa Ciepła | Heat pump – ogrzewanie/chłodzenie domu |\n"
+        "| **RV** | Residual Value | Wartość rezydualna pojazdu po sprzedaży |\n"
+        "| **KUP** | Koszty Uzyskania Przychodu | Koszty podatkowe w firmie |\n"
+        "| **VAT** | Value Added Tax | Podatek od towarów i usług (23%) |\n"
+        "| **RDN** | Rynek Dnia Następnego | Giełda energii – ceny godzinowe |\n"
+        "| **G14** | Taryfa G14dynamic | Dynamiczna taryfa dystrybucyjna (4 strefy cenowe) |\n"
+        "| **LP/MILP** | (Mixed-Integer) Linear Programming | Programowanie liniowe – metoda optymalizacji |\n"
+        "| **HiGHS** | High-performance Solver | Solver optymalizacyjny open-source |\n"
+        "| **DC** | Direct Current | Szybkie ładowanie (>50 kW, Supercharger) |\n"
+        "| **AC** | Alternating Current | Wolne ładowanie (3–22 kW, wallbox) |\n"
+        "| **SUC** | Supercharger | Stacja szybkiego ładowania Tesla |\n"
+        "| **COP** | Coefficient of Performance | Współczynnik wydajności pompy ciepła |"
+    )
 
 # ---------------------------------------------------------------------------
 # STOPKA
