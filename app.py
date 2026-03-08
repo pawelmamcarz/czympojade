@@ -82,7 +82,7 @@ with st.sidebar:
             pass
     st.caption(f"© 2026 Paweł Mamcarz. Wszelkie prawa zastrzeżone. v{APP_VERSION}")
 
-st.title("Czym pojadę w 2026 — jakie auto mi się opłaca kupić?")
+st.title("Czym pojadę w 2026 — jakie auto opłaca mi się kupić?")
 st.caption(
     "Porównanie pełnych kosztów posiadania auta elektrycznego, hybrydowego i spalinowego. "
     "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
