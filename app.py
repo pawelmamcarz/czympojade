@@ -3563,16 +3563,22 @@ with opt_tab_a:
         budget_monthly = st.number_input(
             "Budżet miesięczny na auto (zł)", 500, 15_000, 3_000, 250, key="adv_budget")
         has_roof = st.checkbox("Mogę zamontować panele PV", True, key="adv_roof")
+        has_pv_already = st.checkbox(
+            "Mam już PV (nie doliczaj kosztu instalacji)",
+            True, key="adv_pv_already",
+            help="Odznacz jeśli nie masz jeszcze PV — doliczymy ~4 000 zł/kWp do inwestycji.",
+        )
     with col_d2:
         has_garage = st.checkbox("Mam garaż / wallbox", True, key="adv_garage")
         include_invest = st.checkbox(
-            "Uwzględnij koszt inwestycji PV/BESS",
+            "Dolicz koszt magazynu energii (BESS)",
             True, key="adv_invest",
-            help="PV: ~4 000 zł/kWp, BESS: ~3 000 zł/kWh (ceny rynkowe PL 2025/2026)",
+            help="BESS: ~300 zł/kWh (ceny rynkowe PL 2025/2026). "
+                 "PV: koszt doliczany tylko jeśli odznaczysz 'Mam już PV'.",
         )
 
-    PV_COST_PER_KWP = 4_000
-    BESS_COST_PER_KWH = 3_000
+    PV_COST_PER_KWP = 4_000   # Tylko gdy has_pv_already=False
+    BESS_COST_PER_KWH = 300    # 3 000 zł / 10 kWh
 
     if st.button("🚀 Pokaż najlepszy scenariusz dla mnie!", key="btn_adv", type="primary"):
         scenarios = []
@@ -3624,7 +3630,8 @@ with opt_tab_a:
                         use_tax=use_tax_shield, tax_rate=tax_rate)
                     invest = 0
                     if include_invest:
-                        invest = pv * PV_COST_PER_KWP + bess * BESS_COST_PER_KWH
+                        pv_cost = 0 if has_pv_already else pv * PV_COST_PER_KWP
+                        invest = pv_cost + bess * BESS_COST_PER_KWH
                         if has_moj_prad and pv > 0 and bess > 0:
                             invest = max(0, invest - MOJ_PRAD_6_MAX)
                     r["tco"] += invest
@@ -3679,9 +3686,11 @@ with opt_tab_a:
         show_df = df_s[["Konfig.", "PV", "BESS", "Taryfa", "Inwestycja",
                         "tco", "energy", "maint", "per_km", "monthly"]].copy()
         show_df.columns = ["Konfiguracja", "PV (kWp)", "BESS (kWh)", "Taryfa",
-                           "Inwestycja PV+BESS", "TCO (zł)", "Energia (zł)",
+                           "Inwestycja" + (" BESS" if has_pv_already else " PV+BESS"),
+                           "TCO (zł)", "Energia (zł)",
                            "Serwis (zł)", "zł/km", "zł/mies."]
-        for c in ["Inwestycja PV+BESS", "TCO (zł)", "Energia (zł)", "Serwis (zł)", "zł/mies."]:
+        _inv_col = "Inwestycja" + (" BESS" if has_pv_already else " PV+BESS")
+        for c in [_inv_col, "TCO (zł)", "Energia (zł)", "Serwis (zł)", "zł/mies."]:
             show_df[c] = show_df[c].apply(lambda x: f"{x:,.0f}")
         show_df["zł/km"] = show_df["zł/km"].apply(lambda x: f"{x:.2f}")
         st.dataframe(show_df, use_container_width=True, hide_index=True)
