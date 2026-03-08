@@ -193,6 +193,15 @@ GREENWAY_PLANS = {
 }
 
 # ---------------------------------------------------------------------------
+# Ionity 2026 – plany abonamentowe DC
+# ---------------------------------------------------------------------------
+IONITY_PLANS = {
+    "Direct":  {"monthly_fee": 0.00,  "dc_per_kwh": 3.50},
+    "Motion":  {"monthly_fee": 28.50, "dc_per_kwh": 2.50},
+    "Power":   {"monthly_fee": 51.50, "dc_per_kwh": 2.05},
+}
+
+# ---------------------------------------------------------------------------
 # Pompa ciepła (PC) – szacunkowe roczne zużycie prądu
 # ---------------------------------------------------------------------------
 HEAT_PUMP_ANNUAL_KWH = 4500  # typowa PC w domu 100-140 m², COP ~3.5
@@ -346,6 +355,23 @@ def greenway_optimal_plan(annual_dc_kwh: float) -> dict:
     """Wybiera optymalny plan GreenWay na podstawie rocznego zużycia DC."""
     results = {}
     for name, plan in GREENWAY_PLANS.items():
+        annual_cost = plan["monthly_fee"] * 12 + plan["dc_per_kwh"] * annual_dc_kwh
+        eff_per_kwh = annual_cost / annual_dc_kwh if annual_dc_kwh > 0 else plan["dc_per_kwh"]
+        results[name] = {
+            "annual_cost": annual_cost,
+            "monthly_total": annual_cost / 12,
+            "effective_per_kwh": eff_per_kwh,
+            "subscription": plan["monthly_fee"],
+            "rate": plan["dc_per_kwh"],
+        }
+    best = min(results, key=lambda k: results[k]["annual_cost"])
+    return {"plans": results, "best": best, "best_data": results[best]}
+
+
+def ionity_optimal_plan(annual_dc_kwh: float) -> dict:
+    """Wybiera optymalny plan Ionity na podstawie rocznego zużycia DC."""
+    results = {}
+    for name, plan in IONITY_PLANS.items():
         annual_cost = plan["monthly_fee"] * 12 + plan["dc_per_kwh"] * annual_dc_kwh
         eff_per_kwh = annual_cost / annual_dc_kwh if annual_dc_kwh > 0 else plan["dc_per_kwh"]
         results[name] = {
@@ -1638,26 +1664,36 @@ if highway_pct >= 0.3:
         dc_charger_type = st.selectbox(
             "Preferowana sieć ładowania DC",
             [
-                "Tesla Supercharger (1.49–1.69 zł/kWh)",
-                "Orlen Charge (1.79–1.99 zł/kWh)",
-                "GreenWay (1.69–1.89 zł/kWh)",
-                "Powerdot (1.59–1.79 zł/kWh)",
-                "Inne / średnia rynkowa (1.80 zł/kWh)",
+                "Tesla Supercharger (0.70–1.90 zł/kWh, dynamiczne)",
+                "GreenWay (2.10–3.15 zł/kWh, zależy od abo)",
+                "Orlen Charge (2.02–2.39 zł/kWh)",
+                "Ionity (2.05–3.50 zł/kWh, zależy od abo)",
+                "Powerdot (2.48–2.68 zł/kWh)",
+                "Shell Recharge (2.99–3.59 zł/kWh)",
+                "Elocity (2.00–2.30 zł/kWh)",
+                "Inne / średnia rynkowa (2.30 zł/kWh)",
             ],
             index=0,
-            help="Cena zależy od abonamentu i mocy. Podane zakresy to ceny 2025/2026.",
+            help=(
+                "Ceny 2025/2026 — zakresy uwzględniają abonamenty i moc ładowarki. "
+                "Tesla SC: ceny dynamiczne wg lokalizacji/pory. "
+                "GreenWay: Standard 3.15, Plus (29.99 zł/m) 2.40, Max (79.99 zł/m) 2.10. "
+                "Ionity: Direct 3.50, Motion (28.50 zł/m) 2.50, Power (51.50 zł/m) 2.05. "
+                "Orlen Charge: zależy od mocy — ≤50 kW: 2.02, 50–125 kW: 2.17, >125 kW: 2.39."
+            ),
         )
     with col_ch2:
         dc_price_map = {
-            "Tesla": 1.59, "Orlen": 1.89, "GreenWay": 1.79,
-            "Powerdot": 1.69, "Inne": 1.80,
+            "Tesla": 1.20, "GreenWay": 2.40, "Orlen": 2.17,
+            "Ionity": 2.50, "Powerdot": 2.58, "Shell": 3.19,
+            "Elocity": 2.15, "Inne": 2.30,
         }
         dc_key = [k for k in dc_price_map if k in dc_charger_type][0]
         dc_price_default = dc_price_map[dc_key]
         dc_price_custom = st.number_input(
             "Cena ładowania DC (zł/kWh)",
             min_value=0.50, max_value=5.00, value=dc_price_default, step=0.05,
-            help="Możesz wpisać własną cenę. Wartość domyślna z wybranej sieci.",
+            help="Możesz wpisać własną cenę. Wartość domyślna to typowa cena wybranej sieci (z uwzgl. abonamentu).",
         )
         ac_pub_price = st.number_input(
             "Cena ładowania publiczne AC (zł/kWh)",
@@ -1665,7 +1701,7 @@ if highway_pct >= 0.3:
             help="Publiczne ładowarki AC w miastach (7-22 kW).",
         )
 else:
-    dc_price_custom = 1.60
+    dc_price_custom = 2.30
     ac_pub_price = 1.95
 
 st.subheader("Parametry podatkowe")
@@ -2108,6 +2144,26 @@ if st.session_state.get("tco_calculated", False):
                     f"Przy {dc_kwh_annual:,.0f} kWh DC/rok optymalny plan to "
                     f"**GreenWay {gw['best']}** "
                     f"({gw['best_data']['effective_per_kwh']:.2f} zł/kWh efektywnie)."
+                )
+
+            # Ionity subscription optimizer
+            ion = ionity_optimal_plan(dc_kwh_annual)
+            with st.expander("Ionity 2026 – optymalny plan abonamentowy"):
+                ion_rows = []
+                for name, data in ion["plans"].items():
+                    marker = " **najlepszy**" if name == ion["best"] else ""
+                    ion_rows.append({
+                        "Plan": f"{name}{marker}",
+                        "Abonament": f"{data['subscription']:.2f} zł/mies.",
+                        "Stawka DC": f"{data['rate']:.2f} zł/kWh",
+                        "Koszt roczny": f"{data['annual_cost']:,.0f} zł",
+                        "Efektywna cena": f"{data['effective_per_kwh']:.2f} zł/kWh",
+                    })
+                st.dataframe(pd.DataFrame(ion_rows), hide_index=True, use_container_width=True)
+                st.caption(
+                    f"Przy {dc_kwh_annual:,.0f} kWh DC/rok optymalny plan to "
+                    f"**Ionity {ion['best']}** "
+                    f"({ion['best_data']['effective_per_kwh']:.2f} zł/kWh efektywnie)."
                 )
 
         # G14dynamic distribution tariff info
