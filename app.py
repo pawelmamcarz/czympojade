@@ -3558,13 +3558,13 @@ with opt_tab_a:
         "Sprawdzamy **każdą kombinację** paneli słonecznych, magazynu energii i taryfy — "
         "i pokazujemy, która konfiguracja obniża Twoje koszty najbardziej."
     )
-    col_d1, col_d2 = st.columns(2)
+    col_d1, col_d2, col_d3 = st.columns(3)
     with col_d1:
         budget_monthly = st.number_input(
             "Budżet miesięczny na auto (zł)", 500, 15_000, 3_000, 250, key="adv_budget")
         has_roof = st.checkbox("Mogę zamontować panele PV", True, key="adv_roof")
         has_pv_already = st.checkbox(
-            "Mam już PV (nie doliczaj kosztu instalacji)",
+            "Mam już PV (nie doliczaj kosztu)",
             True, key="adv_pv_already",
             help="Odznacz jeśli nie masz jeszcze PV — doliczymy ~4 000 zł/kWp do inwestycji.",
         )
@@ -3573,12 +3573,20 @@ with opt_tab_a:
         include_invest = st.checkbox(
             "Dolicz koszt magazynu energii (BESS)",
             True, key="adv_invest",
-            help="BESS: ~300 zł/kWh (ceny rynkowe PL 2025/2026). "
-                 "PV: koszt doliczany tylko jeśli odznaczysz 'Mam już PV'.",
+        )
+    with col_d3:
+        bess_tier = st.radio(
+            "Typ magazynu BESS",
+            ["🔧 DIY (~300 zł/kWh)", "🏭 Firmowy (~1 500 zł/kWh)"],
+            index=0, key="adv_bess_tier",
+            help="**DIY:** baterie LFP/Li-ion + falownik EV-BMP, samodzielny montaż. "
+                 "Np. 85 kWh za ~25 tys. zł.\n\n"
+                 "**Firmowy:** gotowy system (BYD, Huawei, Deye) z montażem i gwarancją. "
+                 "Np. 20 kWh za ~25–30 tys. zł.",
         )
 
-    PV_COST_PER_KWP = 4_000   # Tylko gdy has_pv_already=False
-    BESS_COST_PER_KWH = 300    # 3 000 zł / 10 kWh
+    PV_COST_PER_KWP = 4_000
+    BESS_COST_PER_KWH = 300 if "DIY" in bess_tier else 1_500
 
     if st.button("🚀 Pokaż najlepszy scenariusz dla mnie!", key="btn_adv", type="primary"):
         scenarios = []
