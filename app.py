@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "17"
+APP_VERSION = "18"
 
 import streamlit as st
 import numpy as np
@@ -84,10 +84,16 @@ with st.sidebar:
 
 st.title("Czym pojadę w 2026 — jakie auto mi się opłaca kupić?")
 st.caption(
-    "Porównanie pełnych kosztów posiadania auta elektrycznego i spalinowego. "
+    "Porównanie pełnych kosztów posiadania auta elektrycznego, hybrydowego i spalinowego. "
     "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
     "tarcza podatkowa 2026 i wpływ temperatury na zużycie."
 )
+
+with st.expander("📊 Infografika — dlaczego musisz policzyć TCO przed 2026?", expanded=False):
+    try:
+        st.image("infografika.png", use_container_width=True)
+    except Exception:
+        st.info("Plik infografika.png nie został znaleziony w katalogu aplikacji.")
 
 # ---------------------------------------------------------------------------
 # SEGMENTY RYNKOWE – dane CEPiK / AAA AUTO / autoDNA 2025

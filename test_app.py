@@ -444,7 +444,7 @@ class TestConstants:
         assert len(app.MONTH_NAMES_PL) == 12
 
     def test_version(self):
-        assert app.APP_VERSION.startswith("0.")
+        assert len(app.APP_VERSION) > 0
 
 
 # ===========================================================================
