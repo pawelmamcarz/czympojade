@@ -3355,25 +3355,25 @@ if st.session_state.get("tco_calculated", False):
 # OPTYMALIZATOR HiGHS – trzy tryby zaawansowanej analizy
 # ---------------------------------------------------------------------------
 st.divider()
-st.header("3. Optymalizator HiGHS")
+st.header("3. Dowiedz się, jaki scenariusz jest dla Ciebie optymalny")
 st.caption(
-    "Zaawansowane analizy TCO z użyciem solvera **HiGHS** (Linear Programming). "
-    "Każdy scenariusz BEV/PHEV uruchamia osobną optymalizację harmonogramu ładowania."
+    "Silnik analizuje setki kombinacji PV, magazynu energii i taryf, "
+    "żebyś nie musiał liczyć ręcznie. Kliknij i sprawdź, ile możesz zaoszczędzić."
 )
 
 _DRIVE_COLORS = {"ICE": "#ef4444", "HEV": "#f59e0b", "PHEV": "#fb923c", "BEV": "#22c55e"}
 
 opt_tab_a, opt_tab_b, opt_tab_c = st.tabs([
-    "🔧 Doradca PV/BESS",
-    "📊 Punkt zwrotny",
+    "🚀 Znajdź najlepszy scenariusz",
+    "🔥 Kiedy EV się zwraca?",
     "🏁 Porównanie floty",
 ])
 
 # ---- TAB A: DORADCA ----
 with opt_tab_a:
     st.markdown(
-        "Dla każdej kombinacji **PV / BESS / taryfa** HiGHS optymalizuje koszt energii, "
-        "a następnie oblicza pełne TCO dla ICE, hybrydy i BEV."
+        "Sprawdzamy **każdą kombinację** paneli słonecznych, magazynu energii i taryfy — "
+        "i pokazujemy, która konfiguracja obniża Twoje koszty najbardziej."
     )
     col_d1, col_d2 = st.columns(2)
     with col_d1:
@@ -3391,7 +3391,7 @@ with opt_tab_a:
     PV_COST_PER_KWP = 4_000
     BESS_COST_PER_KWH = 3_000
 
-    if st.button("Znajdź optymalną konfigurację (HiGHS)", key="btn_adv"):
+    if st.button("🚀 Pokaż najlepszy scenariusz dla mnie!", key="btn_adv", type="primary"):
         scenarios = []
         # ICE baseline
         _a_pb95 = fuel_data["pb95"] if fuel_type_idx == 2 else 0
@@ -3506,15 +3506,15 @@ with opt_tab_a:
 # ---- TAB B: PUNKT ZWROTNY ----
 with opt_tab_b:
     st.markdown(
-        "Mapa ciepła: dla jakiego przebiegu i ceny paliwa wybrany napęd ma niższe TCO? "
-        "Koszt energii BEV/PHEV obliczony z optymalizacji HiGHS LP."
+        "Sprawdź, przy jakim przebiegu i cenie paliwa **auto elektryczne zaczyna się opłacać** "
+        "bardziej niż spalinowe — i o ile."
     )
     bp_compare = st.radio(
         "Porównanie", ["ICE vs BEV", "ICE vs HYB", "HYB vs BEV"],
         horizontal=True, key="bp_compare",
     )
 
-    if st.button("Oblicz mapę punktu zwrotnego (HiGHS)", key="btn_breakeven"):
+    if st.button("🔥 Pokaż, kiedy EV się zwraca!", key="btn_breakeven", type="primary"):
         with st.spinner("Optymalizacja HiGHS (referencyjne ładowanie)..."):
             mkm_ref = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
 
@@ -3692,8 +3692,8 @@ with opt_tab_b:
 # ---- TAB C: PORÓWNANIE FLOTY ----
 with opt_tab_c:
     st.markdown(
-        "Porównaj modele z wielu segmentów. Ustaw **liczbę** pojazdów per model, "
-        "aby zasymulować zakup floty (np. 50 aut: 10 × seg. A, 20 × seg. B, reszta C/D)."
+        "Planujesz zakup **kilku aut**? Porównaj modele z różnych segmentów, "
+        "ustaw liczbę pojazdów i sprawdź łączny koszt floty."
     )
 
     # Multi-segment selector
@@ -4105,40 +4105,41 @@ with st.expander("Słownik skrótów"):
 # STOPKA
 # ---------------------------------------------------------------------------
 st.divider()
-col_f1, col_f2, col_f3 = st.columns([1, 2, 1])
-with col_f2:
-    st.image("logo.png", width=280)
+_fc_logo, _fc_badges = st.columns([1, 1])
+with _fc_logo:
+    st.image("logo.png", width=260)
+with _fc_badges:
     st.markdown(
-        '<div style="text-align: center; margin: 8px 0 12px 0;">'
+        '<div style="display: flex; flex-direction: column; justify-content: center; '
+        'align-items: flex-start; height: 100%; gap: 6px; padding-top: 12px;">'
         '<a href="https://highs.dev/" target="_blank">'
         '<img src="https://img.shields.io/badge/Powered%20by-HiGHS%20Optimization%20Engine-blue?style=for-the-badge" alt="HiGHS">'
-        '</a> '
+        '</a>'
         '<a href="https://streamlit.io/" target="_blank">'
         '<img src="https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white" alt="Streamlit">'
         '</a>'
         '</div>',
         unsafe_allow_html=True,
     )
-    _footer_data = ""
-    if HAS_MARKET_DB:
-        try:
-            _freshness = get_data_freshness()
-            if _freshness:
-                _footer_data = (
-                    f'Dane rynkowe: {_freshness["fuel_date"]} · '
-                    f'Ogłoszenia w bazie: {_freshness["listings_count"]:,}<br>'
-                )
-        except Exception:
-            pass
-    st.markdown(
-        '<div style="text-align: center; color: #666; font-size: 0.85em;">'
-        f'{_footer_data}'
-        f'© 2026 <strong>Paweł Mamcarz</strong>. Wszelkie prawa zastrzeżone. v{APP_VERSION}<br>'
-        'Optymalizacja z użyciem <strong><a href="https://highs.dev/" target="_blank">HiGHS</a></strong> (Mixed-Integer Linear Programming). '
-        'Dane rynkowe 2025/2026, bieżące ceny paliw z e-petrol.pl.<br>'
-        '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
-        ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
-        ' · +48 535 535 221'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+_footer_data = ""
+if HAS_MARKET_DB:
+    try:
+        _freshness = get_data_freshness()
+        if _freshness:
+            _footer_data = (
+                f'Dane rynkowe: {_freshness["fuel_date"]} · '
+                f'Ogłoszenia w bazie: {_freshness["listings_count"]:,}<br>'
+            )
+    except Exception:
+        pass
+st.markdown(
+    '<div style="text-align: center; color: #666; font-size: 0.85em;">'
+    f'{_footer_data}'
+    f'© 2026 <strong>Paweł Mamcarz</strong>. Wszelkie prawa zastrzeżone. v{APP_VERSION}<br>'
+    'Dane rynkowe 2025/2026, bieżące ceny paliw z e-petrol.pl.<br>'
+    '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
+    ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
+    ' · +48 535 535 221'
+    '</div>',
+    unsafe_allow_html=True,
+)
