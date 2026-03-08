@@ -2317,7 +2317,7 @@ if st.session_state.get("tco_calculated", False):
     nominal_bev_annual = annual_mileage / 100 * nominal_bev_kwh_100
     bev_temp_penalty_pct = (annual_energy_demand / nominal_bev_annual - 1) * 100 if nominal_bev_annual > 0 else 0
 
-    with st.spinner("Optymalizacja ładowania HiGHS..."):
+    with st.spinner("Analizuję koszty ładowania..."):
         charging_result = optimize_charging(
             annual_demand_kwh=annual_energy_demand,
             battery_cap_kwh=battery_capacity,
@@ -2777,9 +2777,9 @@ if st.session_state.get("tco_calculated", False):
         )
 
     with tab3:
-        st.subheader("Struktura źródeł energii BEV (optymalizacja HiGHS)")
+        st.subheader("Skąd pochodzi energia do ładowania Twojego BEV?")
         st.caption(
-            "HiGHS LP minimalizuje roczny koszt energii BEV (sieć + PV + BESS + Supercharger). "
+            "Optymalizator wybiera najtańsze źródła energii dla BEV (sieć, PV, magazyn, Supercharger). "
             "To jedna ze składowych TCO – samo TCO to proste sumowanie wszystkich kosztów."
         )
 
@@ -2883,7 +2883,7 @@ if st.session_state.get("tco_calculated", False):
                 )
                 st.caption(
                     "G14dynamic: opłata dystrybucyjna zmienia się wg pory dnia. "
-                    "HiGHS automatycznie ładuje auto w najtańszych godzinach (noc/poranek)."
+                    "Optymalizator automatycznie ładuje auto w najtańszych godzinach (noc/poranek)."
                 )
 
     with tab4:
@@ -3135,7 +3135,7 @@ if st.session_state.get("tco_calculated", False):
 
         st.caption(
             "Obliczenia uwzględniają: limity podatkowe 2026 (ICE/HEV: 100k zł, PHEV/BEV: 225k zł), "
-            "optymalizację ładowania HiGHS z taryfą dynamiczną RDN, wpływ temperatury "
+            "optymalizację ładowania z taryfą dynamiczną RDN, wpływ temperatury "
             "na zużycie wszystkich napędów, oraz rozbicie kosztów serwisowych. "
             "Ceny paliw aktualizowane z e-petrol.pl."
         )
@@ -3424,7 +3424,7 @@ with opt_tab_a:
         tariff_opts = [(False, "G11"), (True, "Pstryk")] if has_garage else [(False, "G11")]
 
         n_total = len(pv_opts) * len(bess_opts) * len(tariff_opts)
-        progress = st.progress(0, text="Optymalizacja HiGHS LP...")
+        progress = st.progress(0, text="Szukam najlepszego scenariusza...")
         done = 0
 
         for pv in pv_opts:
@@ -3452,14 +3452,14 @@ with opt_tab_a:
                         "Taryfa": tname, "Inwestycja": invest, "napęd": "BEV", **r,
                     })
                     done += 1
-                    progress.progress(done / n_total, text=f"HiGHS LP: {done}/{n_total}")
+                    progress.progress(done / n_total, text=f"Analizuję scenariusz {done}/{n_total}...")
 
         progress.empty()
         df_s = pd.DataFrame(scenarios).sort_values("tco")
 
         best = df_s.iloc[0]
         st.success(
-            f"**Rekomendacja HiGHS:** {best['Konfig.']} | "
+            f"**✅ Najlepsza konfiguracja:** {best['Konfig.']} | "
             f"PV: {best['PV']} kWp | BESS: {best['BESS']} kWh | {best['Taryfa']}\n\n"
             f"TCO: **{best['tco']:,.0f} zł** ({best['per_km']:.2f} zł/km, "
             f"{best['monthly']:,.0f} zł/mies.)"
@@ -3487,7 +3487,7 @@ with opt_tab_a:
             textposition="outside",
         ))
         fig_adv.update_layout(
-            title=f"Top {top_n} konfiguracji wg TCO ({period_years} lata, HiGHS LP)",
+            title=f"Top {top_n} konfiguracji wg TCO ({period_years} lata)",
             yaxis_title="TCO (zł)", height=480,
         )
         st.plotly_chart(fig_adv, use_container_width=True)
@@ -3515,7 +3515,7 @@ with opt_tab_b:
     )
 
     if st.button("🔥 Pokaż, kiedy EV się zwraca!", key="btn_breakeven", type="primary"):
-        with st.spinner("Optymalizacja HiGHS (referencyjne ładowanie)..."):
+        with st.spinner("Analizuję punkt zwrotny..."):
             mkm_ref = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
 
             # ICE reference
@@ -3687,7 +3687,7 @@ with opt_tab_b:
                     )
                     break
 
-        st.caption(f"Dane rynkowe i podatkowe 2025/2026. Obliczenia HiGHS LP.")
+        st.caption("Dane rynkowe i podatkowe 2025/2026. Obliczenia na bazie cen giełdowych RDN.")
 
 # ---- TAB C: PORÓWNANIE FLOTY ----
 with opt_tab_c:
@@ -3795,7 +3795,7 @@ with opt_tab_c:
         key="portfolio_editor",
     )
 
-    if st.button("Porównaj flotę (HiGHS)", key="btn_portfolio"):
+    if st.button("🏁 Porównaj flotę", key="btn_portfolio", type="primary"):
         valid_cars = edited_cars.dropna(subset=["Model", "Cena (zł)", "Napęd"])
         # Filter out qty=0 rows
         valid_cars = valid_cars[valid_cars.get("Liczba", pd.Series([1] * len(valid_cars))).fillna(1).astype(int) > 0]
@@ -3803,7 +3803,7 @@ with opt_tab_c:
             st.warning("Dodaj co najmniej 2 pojazdy do porównania.")
         else:
             results = []
-            progress = st.progress(0, text="Obliczam TCO (HiGHS LP)...")
+            progress = st.progress(0, text="Obliczam koszty floty...")
 
             for idx, (_, car) in enumerate(valid_cars.iterrows()):
                 etype = car["Napęd"]
@@ -3861,7 +3861,7 @@ with opt_tab_c:
                     "Cena": car["Cena (zł)"], **r,
                 })
                 progress.progress((idx + 1) / len(valid_cars),
-                                  text=f"HiGHS LP: {idx + 1}/{len(valid_cars)}")
+                                  text=f"Analizuję pojazd {idx + 1}/{len(valid_cars)}...")
 
             progress.empty()
             df_p = pd.DataFrame(results).sort_values("tco")
