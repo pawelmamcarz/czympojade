@@ -4155,22 +4155,13 @@ with st.expander("Słownik skrótów"):
 # STOPKA
 # ---------------------------------------------------------------------------
 st.divider()
-_fc_logo, _fc_badges = st.columns([1, 1])
-with _fc_logo:
-    st.image("logo.png", width=260)
-with _fc_badges:
-    st.markdown(
-        '<div style="display: flex; flex-direction: column; justify-content: center; '
-        'align-items: flex-start; height: 100%; gap: 6px; padding-top: 12px;">'
-        '<a href="https://highs.dev/" target="_blank">'
-        '<img src="https://img.shields.io/badge/Powered%20by-HiGHS%20Optimization%20Engine-blue?style=for-the-badge" alt="HiGHS">'
-        '</a>'
-        '<a href="https://streamlit.io/" target="_blank">'
-        '<img src="https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white" alt="Streamlit">'
-        '</a>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+
+# Logo — wycentrowane, kompaktowe
+_logo_spacer_l, _logo_center, _logo_spacer_r = st.columns([1, 2, 1])
+with _logo_center:
+    st.image("logo.png", width=200)
+
+# Badge'e + copyright — jeden blok HTML, wycentrowany
 _footer_data = ""
 if HAS_MARKET_DB:
     try:
@@ -4183,10 +4174,18 @@ if HAS_MARKET_DB:
     except Exception:
         pass
 st.markdown(
-    '<div style="text-align: center; color: #666; font-size: 0.85em;">'
+    '<div style="text-align: center; color: #888; font-size: 0.85em; line-height: 1.8;">'
+    '<div style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 12px;">'
+    '<a href="https://highs.dev/" target="_blank">'
+    '<img src="https://img.shields.io/badge/Powered%20by-HiGHS-blue?style=flat-square" alt="HiGHS">'
+    '</a>'
+    '<a href="https://streamlit.io/" target="_blank">'
+    '<img src="https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white" alt="Streamlit">'
+    '</a>'
+    '</div>'
     f'{_footer_data}'
-    f'© 2026 <strong>Paweł Mamcarz</strong>. Wszelkie prawa zastrzeżone. v{APP_VERSION}<br>'
-    'Dane rynkowe 2025/2026, bieżące ceny paliw z e-petrol.pl.<br>'
+    f'© 2026 <strong>Paweł Mamcarz</strong> · v{APP_VERSION}<br>'
+    'Dane rynkowe 2025/2026, ceny paliw z e-petrol.pl<br>'
     '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
     ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
     ' · +48 535 535 221'
