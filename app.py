@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.10.0"
 
 import streamlit as st
 import numpy as np
@@ -697,39 +697,110 @@ is_new = st.radio(
     ),
 ) == "Nowy"
 
+# --- Presety popularnych modeli ---
+ICE_PRESETS_NEW = {
+    "Własne parametry": {"price": 140_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 0},
+    "Toyota Corolla 1.8 Hybrid": {"price": 135_000, "city_l": 4.5, "hwy_l": 5.5, "fuel": 0},
+    "Toyota Yaris Cross Hybrid": {"price": 115_000, "city_l": 4.8, "hwy_l": 5.2, "fuel": 0},
+    "VW Golf 2.0 TDI": {"price": 145_000, "city_l": 6.5, "hwy_l": 5.0, "fuel": 1},
+    "Skoda Octavia 2.0 TDI": {"price": 140_000, "city_l": 6.5, "hwy_l": 4.8, "fuel": 1},
+    "Hyundai Tucson 1.6 T-GDi": {"price": 155_000, "city_l": 8.5, "hwy_l": 6.8, "fuel": 0},
+    "Kia Sportage 1.6 T-GDi": {"price": 150_000, "city_l": 8.5, "hwy_l": 7.0, "fuel": 0},
+    "Dacia Duster 1.0 TCe LPG": {"price": 85_000, "city_l": 10.0, "hwy_l": 8.0, "fuel": 2},
+    "Toyota RAV4 2.5 Hybrid": {"price": 185_000, "city_l": 5.5, "hwy_l": 6.5, "fuel": 0},
+    "BMW 320i": {"price": 210_000, "city_l": 8.5, "hwy_l": 6.5, "fuel": 0},
+}
+ICE_PRESETS_USED = {
+    "Własne parametry": {"price": 65_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 0},
+    "Toyota Corolla 1.8 Hybrid 2021": {"price": 85_000, "city_l": 4.8, "hwy_l": 5.5, "fuel": 0},
+    "VW Golf VII 2.0 TDI 2019": {"price": 65_000, "city_l": 7.0, "hwy_l": 5.0, "fuel": 1},
+    "Skoda Octavia III 2.0 TDI 2018": {"price": 55_000, "city_l": 7.0, "hwy_l": 5.2, "fuel": 1},
+    "Opel Astra K 1.6 CDTI 2019": {"price": 48_000, "city_l": 6.8, "hwy_l": 4.8, "fuel": 1},
+    "Toyota Yaris III 1.5 Hybrid 2020": {"price": 55_000, "city_l": 4.2, "hwy_l": 5.0, "fuel": 0},
+    "Dacia Duster 1.5 dCi 2020": {"price": 52_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 1},
+    "Hyundai Tucson 1.6 CRDi 2019": {"price": 72_000, "city_l": 8.0, "hwy_l": 6.0, "fuel": 1},
+    "Ford Focus 1.5 EcoBlue 2019": {"price": 45_000, "city_l": 6.5, "hwy_l": 4.5, "fuel": 1},
+    "BMW 320d F30 2018": {"price": 75_000, "city_l": 8.0, "hwy_l": 5.5, "fuel": 1},
+}
+BEV_PRESETS_NEW = {
+    "Własne parametry": {"price": 195_000, "city_kwh": 16.5, "hwy_kwh": 19.0, "bat": 75},
+    "Tesla Model Y RWD": {"price": 189_000, "city_kwh": 14.5, "hwy_kwh": 17.0, "bat": 60},
+    "Tesla Model Y LR AWD": {"price": 219_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 75},
+    "Tesla Model 3 RWD": {"price": 175_000, "city_kwh": 13.5, "hwy_kwh": 16.0, "bat": 60},
+    "BYD Atto 3": {"price": 145_000, "city_kwh": 16.0, "hwy_kwh": 19.5, "bat": 60},
+    "BYD Seal": {"price": 185_000, "city_kwh": 14.5, "hwy_kwh": 17.5, "bat": 82},
+    "VW ID.4 Pro": {"price": 195_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 77},
+    "Hyundai Ioniq 5 LR": {"price": 215_000, "city_kwh": 16.5, "hwy_kwh": 19.5, "bat": 77},
+    "Skoda Enyaq iV 80": {"price": 199_000, "city_kwh": 17.5, "hwy_kwh": 20.5, "bat": 77},
+    "MG4 Electric LR": {"price": 125_000, "city_kwh": 15.5, "hwy_kwh": 18.5, "bat": 64},
+}
+BEV_PRESETS_USED = {
+    "Własne parametry": {"price": 120_000, "city_kwh": 16.5, "hwy_kwh": 19.0, "bat": 75},
+    "Tesla Model 3 SR+ 2021": {"price": 105_000, "city_kwh": 14.0, "hwy_kwh": 16.5, "bat": 55},
+    "Tesla Model Y LR 2022": {"price": 145_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 75},
+    "VW ID.3 Pro 2021": {"price": 85_000, "city_kwh": 15.5, "hwy_kwh": 18.5, "bat": 58},
+    "VW ID.4 Pro 2022": {"price": 120_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 77},
+    "Hyundai Ioniq 5 LR 2022": {"price": 135_000, "city_kwh": 16.5, "hwy_kwh": 19.5, "bat": 77},
+    "Nissan Leaf 40 kWh 2020": {"price": 65_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 40},
+    "Renault Zoe R135 2021": {"price": 58_000, "city_kwh": 15.0, "hwy_kwh": 18.0, "bat": 52},
+    "Skoda Enyaq 80 2022": {"price": 125_000, "city_kwh": 17.5, "hwy_kwh": 20.5, "bat": 77},
+    "BMW iX1 eDrive20 2023": {"price": 155_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 65},
+}
+
+ice_presets = ICE_PRESETS_NEW if is_new else ICE_PRESETS_USED
+bev_presets = BEV_PRESETS_NEW if is_new else BEV_PRESETS_USED
+
 col_ice, col_bev = st.columns(2)
 
 with col_ice:
     st.subheader("ICE (spalinowe)")
+    ice_preset_name = st.selectbox(
+        "Popularny model ICE",
+        list(ice_presets.keys()),
+        index=0,
+        help="Wybierz model z listy – cena i spalanie wypełnią się automatycznie. "
+             "Wybierz 'Własne parametry' aby wpisać ręcznie.",
+    )
+    ice_p = ice_presets[ice_preset_name]
     ice_model = st.text_input(
         "Marka i model ICE",
-        value="Toyota Corolla 2024" if is_new else "Toyota Corolla 2019",
+        value=ice_preset_name if ice_preset_name != "Własne parametry" else (
+            "Toyota Corolla 2024" if is_new else "Toyota Corolla 2019"),
         help="Np. Toyota Corolla 1.8, VW Golf 2.0 TDI, Dacia Duster 1.5 dCi",
     )
     vehicle_price_ice = st.number_input(
         "Cena zakupu / leasingu ICE (zł)",
         min_value=5_000, max_value=1_000_000,
-        value=140_000 if is_new else 65_000,
+        value=ice_p["price"],
         step=5_000,
         help="Wpisz cenę swojego pojazdu – z otomoto.pl, salonu lub umowy leasingu.",
     )
     fuel_type = st.selectbox(
         "Rodzaj paliwa",
         ["Benzyna (PB95)", "Diesel (ON)", "LPG"],
-        index=0,
+        index=ice_p["fuel"],
     )
 
 with col_bev:
     st.subheader("BEV (elektryczne)")
+    bev_preset_name = st.selectbox(
+        "Popularny model BEV",
+        list(bev_presets.keys()),
+        index=0,
+        help="Wybierz model z listy – cena, zużycie i bateria wypełnią się automatycznie. "
+             "Wybierz 'Własne parametry' aby wpisać ręcznie.",
+    )
+    bev_p = bev_presets[bev_preset_name]
     bev_model = st.text_input(
         "Marka i model BEV",
-        value="Tesla Model Y LR 2024" if is_new else "Tesla Model 3 SR+ 2021",
+        value=bev_preset_name if bev_preset_name != "Własne parametry" else (
+            "Tesla Model Y LR 2024" if is_new else "Tesla Model 3 SR+ 2021"),
         help="Np. Tesla Model Y LR, BYD Atto 3, Hyundai Ioniq 5",
     )
     vehicle_price_bev = st.number_input(
         "Cena zakupu / leasingu BEV (zł)",
         min_value=5_000, max_value=1_000_000,
-        value=195_000 if is_new else 120_000,
+        value=bev_p["price"],
         step=5_000,
         help="Wpisz cenę swojego pojazdu – z otomoto.pl, salonu lub umowy leasingu.",
     )
@@ -806,12 +877,12 @@ st.subheader("Spalanie ICE (nominalne)")
 col_ic1, col_ic2 = st.columns(2)
 with col_ic1:
     ice_city_l = st.number_input(
-        "Miasto (l/100 km)", min_value=3.0, max_value=25.0, value=8.5, step=0.5,
+        "Miasto (l/100 km)", min_value=3.0, max_value=25.0, value=ice_p["city_l"], step=0.5,
         help="Spalanie w cyklu miejskim.",
     )
 with col_ic2:
     ice_highway_l = st.number_input(
-        "Trasa (l/100 km)", min_value=3.0, max_value=20.0, value=6.0, step=0.5,
+        "Trasa (l/100 km)", min_value=3.0, max_value=20.0, value=ice_p["hwy_l"], step=0.5,
         help="Spalanie w cyklu pozamiejskim / autostrada.",
     )
 
@@ -819,20 +890,20 @@ st.subheader("Zużycie BEV (nominalne przy 15°C)")
 col_bc1, col_bc2 = st.columns(2)
 with col_bc1:
     bev_city_kwh = st.number_input(
-        "Miasto (kWh/100 km)", min_value=8.0, max_value=35.0, value=16.5, step=0.5,
-        help="Np. Tesla Model Y LR: ~16-17 kWh przy 15°C.",
+        "Miasto (kWh/100 km)", min_value=8.0, max_value=35.0, value=bev_p["city_kwh"], step=0.5,
+        help="Zużycie w cyklu miejskim przy 15°C.",
     )
 with col_bc2:
     bev_highway_kwh = st.number_input(
-        "Trasa (kWh/100 km)", min_value=10.0, max_value=40.0, value=19.0, step=0.5,
-        help="Np. Tesla Model Y LR: ~19 kWh przy 15°C.",
+        "Trasa (kWh/100 km)", min_value=10.0, max_value=40.0, value=bev_p["hwy_kwh"], step=0.5,
+        help="Zużycie w cyklu trasowym przy 15°C.",
     )
 
 st.subheader("Parametry BEV – bateria i ładowanie")
 col3, col4 = st.columns(2)
 with col3:
     battery_capacity = st.number_input(
-        "Pojemność baterii BEV (kWh)", min_value=20, max_value=120, value=75, step=5
+        "Pojemność baterii BEV (kWh)", min_value=20, max_value=120, value=bev_p["bat"], step=5
     )
     has_home_charger = st.checkbox("Ładowarka domowa (wallbox AC 11 kW)", value=True)
 with col4:
