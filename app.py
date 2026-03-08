@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "0.16.1"
+APP_VERSION = "0.17.0"
 
 import streamlit as st
 import numpy as np
@@ -1102,56 +1102,134 @@ if HAS_MARKET_DB:
 # KROK 1: Dane pojazdu
 st.header("1. Twoje pojazdy")
 
-# --- Presety popularnych modeli ---
+# --- Presety popularnych modeli (pogrupowane wg segmentu A–E) ---
+_CUSTOM_ICE_NEW = {"price": 140_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 0}
+_CUSTOM_ICE_USED = {"price": 65_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 0}
+_CUSTOM_BEV_NEW = {"price": 195_000, "city_kwh": 16.5, "hwy_kwh": 19.0, "bat": 75}
+_CUSTOM_BEV_USED = {"price": 120_000, "city_kwh": 16.5, "hwy_kwh": 19.0, "bat": 75}
+
 ICE_PRESETS_NEW = {
-    "Własne parametry": {"price": 140_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 0},
-    "Toyota Corolla 1.8 Hybrid": {"price": 135_000, "city_l": 4.5, "hwy_l": 5.5, "fuel": 0},
-    "Toyota Yaris Cross Hybrid": {"price": 115_000, "city_l": 4.8, "hwy_l": 5.2, "fuel": 0},
-    "VW Golf 2.0 TDI": {"price": 145_000, "city_l": 6.5, "hwy_l": 5.0, "fuel": 1},
-    "Skoda Octavia 2.0 TDI": {"price": 140_000, "city_l": 6.5, "hwy_l": 4.8, "fuel": 1},
-    "Hyundai Tucson 1.6 T-GDi": {"price": 155_000, "city_l": 8.5, "hwy_l": 6.8, "fuel": 0},
-    "Kia Sportage 1.6 T-GDi": {"price": 150_000, "city_l": 8.5, "hwy_l": 7.0, "fuel": 0},
-    "Dacia Duster 1.0 TCe LPG": {"price": 85_000, "city_l": 10.0, "hwy_l": 8.0, "fuel": 2},
-    "Toyota RAV4 2.5 Hybrid": {"price": 185_000, "city_l": 5.5, "hwy_l": 6.5, "fuel": 0},
-    "BMW 320i": {"price": 210_000, "city_l": 8.5, "hwy_l": 6.5, "fuel": 0},
+    "A – Mini": {
+        "Fiat 500 1.0 Hybrid": {"price": 75_000, "city_l": 5.5, "hwy_l": 4.5, "fuel": 0},
+        "Toyota Aygo X 1.0": {"price": 72_000, "city_l": 5.0, "hwy_l": 4.2, "fuel": 0},
+        "VW up! 1.0": {"price": 62_000, "city_l": 5.5, "hwy_l": 4.5, "fuel": 0},
+    },
+    "B – Małe": {
+        "Toyota Yaris 1.5 Hybrid": {"price": 95_000, "city_l": 4.0, "hwy_l": 4.8, "fuel": 0},
+        "VW Polo 1.0 TSI": {"price": 95_000, "city_l": 6.5, "hwy_l": 5.0, "fuel": 0},
+        "Renault Clio 1.0 TCe LPG": {"price": 78_000, "city_l": 9.0, "hwy_l": 7.5, "fuel": 2},
+        "Opel Corsa 1.2 Turbo": {"price": 88_000, "city_l": 6.5, "hwy_l": 5.0, "fuel": 0},
+    },
+    "C – Kompakt": {
+        "Toyota Corolla 1.8 Hybrid": {"price": 135_000, "city_l": 4.5, "hwy_l": 5.5, "fuel": 0},
+        "VW Golf 2.0 TDI": {"price": 145_000, "city_l": 6.5, "hwy_l": 5.0, "fuel": 1},
+        "Hyundai i30 1.5 T-GDi": {"price": 120_000, "city_l": 7.0, "hwy_l": 5.5, "fuel": 0},
+        "Skoda Octavia 2.0 TDI": {"price": 140_000, "city_l": 6.5, "hwy_l": 4.8, "fuel": 1},
+        "Mazda 3 2.0 Hybrid": {"price": 125_000, "city_l": 5.5, "hwy_l": 5.0, "fuel": 0},
+    },
+    "D – Średni": {
+        "Toyota Camry 2.5 Hybrid": {"price": 175_000, "city_l": 5.0, "hwy_l": 5.5, "fuel": 0},
+        "VW Passat 2.0 TDI": {"price": 185_000, "city_l": 6.5, "hwy_l": 5.0, "fuel": 1},
+        "Hyundai Tucson 1.6 T-GDi": {"price": 155_000, "city_l": 8.5, "hwy_l": 6.8, "fuel": 0},
+        "Kia Sportage 1.6 T-GDi": {"price": 150_000, "city_l": 8.5, "hwy_l": 7.0, "fuel": 0},
+        "Toyota RAV4 2.5 Hybrid": {"price": 185_000, "city_l": 5.5, "hwy_l": 6.5, "fuel": 0},
+    },
+    "E – Wyższy": {
+        "BMW 320i": {"price": 210_000, "city_l": 8.5, "hwy_l": 6.5, "fuel": 0},
+        "Mercedes C 200": {"price": 225_000, "city_l": 8.0, "hwy_l": 6.0, "fuel": 0},
+        "Audi A4 40 TFSI": {"price": 215_000, "city_l": 8.0, "hwy_l": 6.0, "fuel": 0},
+        "Volvo S60 B4": {"price": 210_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 0},
+    },
 }
 ICE_PRESETS_USED = {
-    "Własne parametry": {"price": 65_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 0},
-    "Toyota Corolla 1.8 Hybrid 2021": {"price": 85_000, "city_l": 4.8, "hwy_l": 5.5, "fuel": 0},
-    "VW Golf VII 2.0 TDI 2019": {"price": 65_000, "city_l": 7.0, "hwy_l": 5.0, "fuel": 1},
-    "Skoda Octavia III 2.0 TDI 2018": {"price": 55_000, "city_l": 7.0, "hwy_l": 5.2, "fuel": 1},
-    "Opel Astra K 1.6 CDTI 2019": {"price": 48_000, "city_l": 6.8, "hwy_l": 4.8, "fuel": 1},
-    "Toyota Yaris III 1.5 Hybrid 2020": {"price": 55_000, "city_l": 4.2, "hwy_l": 5.0, "fuel": 0},
-    "Dacia Duster 1.5 dCi 2020": {"price": 52_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 1},
-    "Hyundai Tucson 1.6 CRDi 2019": {"price": 72_000, "city_l": 8.0, "hwy_l": 6.0, "fuel": 1},
-    "Ford Focus 1.5 EcoBlue 2019": {"price": 45_000, "city_l": 6.5, "hwy_l": 4.5, "fuel": 1},
-    "BMW 320d F30 2018": {"price": 75_000, "city_l": 8.0, "hwy_l": 5.5, "fuel": 1},
+    "A – Mini": {
+        "Fiat 500 1.2 2019": {"price": 35_000, "city_l": 6.0, "hwy_l": 5.0, "fuel": 0},
+        "Toyota Aygo 1.0 2020": {"price": 38_000, "city_l": 5.0, "hwy_l": 4.2, "fuel": 0},
+        "VW up! 1.0 2019": {"price": 30_000, "city_l": 5.5, "hwy_l": 4.5, "fuel": 0},
+    },
+    "B – Małe": {
+        "Toyota Yaris III 1.5 Hybrid 2020": {"price": 55_000, "city_l": 4.2, "hwy_l": 5.0, "fuel": 0},
+        "VW Polo VI 1.0 TSI 2020": {"price": 52_000, "city_l": 6.5, "hwy_l": 5.0, "fuel": 0},
+        "Opel Corsa F 1.2 2020": {"price": 45_000, "city_l": 6.5, "hwy_l": 5.0, "fuel": 0},
+        "Renault Clio V 1.0 TCe 2021": {"price": 48_000, "city_l": 6.5, "hwy_l": 5.2, "fuel": 0},
+    },
+    "C – Kompakt": {
+        "Toyota Corolla 1.8 Hybrid 2021": {"price": 85_000, "city_l": 4.8, "hwy_l": 5.5, "fuel": 0},
+        "VW Golf VII 2.0 TDI 2019": {"price": 65_000, "city_l": 7.0, "hwy_l": 5.0, "fuel": 1},
+        "Skoda Octavia III 2.0 TDI 2018": {"price": 55_000, "city_l": 7.0, "hwy_l": 5.2, "fuel": 1},
+        "Opel Astra K 1.6 CDTI 2019": {"price": 48_000, "city_l": 6.8, "hwy_l": 4.8, "fuel": 1},
+        "Ford Focus 1.5 EcoBlue 2019": {"price": 45_000, "city_l": 6.5, "hwy_l": 4.5, "fuel": 1},
+    },
+    "D – Średni": {
+        "Hyundai Tucson 1.6 CRDi 2019": {"price": 72_000, "city_l": 8.0, "hwy_l": 6.0, "fuel": 1},
+        "Dacia Duster 1.5 dCi 2020": {"price": 52_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 1},
+        "Kia Sportage 1.6 T-GDi 2020": {"price": 78_000, "city_l": 8.5, "hwy_l": 7.0, "fuel": 0},
+        "Toyota RAV4 2.5 Hybrid 2020": {"price": 115_000, "city_l": 5.8, "hwy_l": 6.5, "fuel": 0},
+    },
+    "E – Wyższy": {
+        "BMW 320d F30 2018": {"price": 75_000, "city_l": 8.0, "hwy_l": 5.5, "fuel": 1},
+        "Mercedes C 220d W205 2019": {"price": 95_000, "city_l": 7.5, "hwy_l": 5.5, "fuel": 1},
+        "Audi A4 2.0 TDI B9 2019": {"price": 85_000, "city_l": 7.5, "hwy_l": 5.5, "fuel": 1},
+    },
 }
 BEV_PRESETS_NEW = {
-    "Własne parametry": {"price": 195_000, "city_kwh": 16.5, "hwy_kwh": 19.0, "bat": 75},
-    "Tesla Model Y RWD": {"price": 189_000, "city_kwh": 14.5, "hwy_kwh": 17.0, "bat": 60},
-    "Tesla Model Y LR AWD": {"price": 219_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 75},
-    "Tesla Model 3 RWD": {"price": 175_000, "city_kwh": 13.5, "hwy_kwh": 16.0, "bat": 60},
-    "BYD Atto 3": {"price": 145_000, "city_kwh": 16.0, "hwy_kwh": 19.5, "bat": 60},
-    "BYD Seal": {"price": 185_000, "city_kwh": 14.5, "hwy_kwh": 17.5, "bat": 82},
-    "VW ID.4 Pro": {"price": 195_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 77},
-    "Hyundai Ioniq 5 LR": {"price": 215_000, "city_kwh": 16.5, "hwy_kwh": 19.5, "bat": 77},
-    "Skoda Enyaq iV 80": {"price": 199_000, "city_kwh": 17.5, "hwy_kwh": 20.5, "bat": 77},
-    "MG4 Electric LR": {"price": 125_000, "city_kwh": 15.5, "hwy_kwh": 18.5, "bat": 64},
+    "A – Mini": {
+        "Fiat 500e": {"price": 120_000, "city_kwh": 13.0, "hwy_kwh": 16.0, "bat": 42},
+        "Dacia Spring": {"price": 85_000, "city_kwh": 14.0, "hwy_kwh": 17.0, "bat": 27},
+    },
+    "B – Małe": {
+        "Renault 5 E-Tech": {"price": 125_000, "city_kwh": 14.5, "hwy_kwh": 17.0, "bat": 52},
+        "MG4 Electric LR": {"price": 125_000, "city_kwh": 15.5, "hwy_kwh": 18.5, "bat": 64},
+        "Opel Corsa-e": {"price": 135_000, "city_kwh": 15.0, "hwy_kwh": 17.5, "bat": 51},
+    },
+    "C – Kompakt": {
+        "Tesla Model 3 RWD": {"price": 175_000, "city_kwh": 13.5, "hwy_kwh": 16.0, "bat": 60},
+        "VW ID.3 Pro": {"price": 165_000, "city_kwh": 15.5, "hwy_kwh": 18.5, "bat": 58},
+        "BYD Seal": {"price": 185_000, "city_kwh": 14.5, "hwy_kwh": 17.5, "bat": 82},
+        "Hyundai Ioniq 6 LR": {"price": 205_000, "city_kwh": 13.5, "hwy_kwh": 15.5, "bat": 77},
+    },
+    "D – Średni": {
+        "Tesla Model Y RWD": {"price": 189_000, "city_kwh": 14.5, "hwy_kwh": 17.0, "bat": 60},
+        "VW ID.4 Pro": {"price": 195_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 77},
+        "Hyundai Ioniq 5 LR": {"price": 215_000, "city_kwh": 16.5, "hwy_kwh": 19.5, "bat": 77},
+        "Skoda Enyaq iV 80": {"price": 199_000, "city_kwh": 17.5, "hwy_kwh": 20.5, "bat": 77},
+        "BYD Atto 3": {"price": 145_000, "city_kwh": 16.0, "hwy_kwh": 19.5, "bat": 60},
+    },
+    "E – Wyższy": {
+        "Tesla Model Y LR AWD": {"price": 219_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 75},
+        "BMW iX xDrive40": {"price": 310_000, "city_kwh": 18.0, "hwy_kwh": 21.0, "bat": 77},
+        "Mercedes EQE 300": {"price": 350_000, "city_kwh": 16.0, "hwy_kwh": 18.5, "bat": 90},
+    },
 }
 BEV_PRESETS_USED = {
-    "Własne parametry": {"price": 120_000, "city_kwh": 16.5, "hwy_kwh": 19.0, "bat": 75},
-    "Tesla Model 3 SR+ 2021": {"price": 105_000, "city_kwh": 14.0, "hwy_kwh": 16.5, "bat": 55},
-    "Tesla Model Y LR 2022": {"price": 145_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 75},
-    "VW ID.3 Pro 2021": {"price": 85_000, "city_kwh": 15.5, "hwy_kwh": 18.5, "bat": 58},
-    "VW ID.4 Pro 2022": {"price": 120_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 77},
-    "Hyundai Ioniq 5 LR 2022": {"price": 135_000, "city_kwh": 16.5, "hwy_kwh": 19.5, "bat": 77},
-    "Nissan Leaf 40 kWh 2020": {"price": 65_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 40},
-    "Renault Zoe R135 2021": {"price": 58_000, "city_kwh": 15.0, "hwy_kwh": 18.0, "bat": 52},
-    "Skoda Enyaq 80 2022": {"price": 125_000, "city_kwh": 17.5, "hwy_kwh": 20.5, "bat": 77},
-    "BMW iX1 eDrive20 2023": {"price": 155_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 65},
-    "Lexus UX 300e 2022": {"price": 135_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 54},
+    "A – Mini": {
+        "Fiat 500e 2022": {"price": 72_000, "city_kwh": 13.5, "hwy_kwh": 16.5, "bat": 42},
+        "Dacia Spring 2022": {"price": 48_000, "city_kwh": 14.5, "hwy_kwh": 17.5, "bat": 27},
+    },
+    "B – Małe": {
+        "Renault Zoe R135 2021": {"price": 58_000, "city_kwh": 15.0, "hwy_kwh": 18.0, "bat": 52},
+        "MG4 Electric 2023": {"price": 85_000, "city_kwh": 15.5, "hwy_kwh": 18.5, "bat": 64},
+        "Nissan Leaf 40 kWh 2020": {"price": 65_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 40},
+    },
+    "C – Kompakt": {
+        "Tesla Model 3 SR+ 2021": {"price": 105_000, "city_kwh": 14.0, "hwy_kwh": 16.5, "bat": 55},
+        "VW ID.3 Pro 2021": {"price": 85_000, "city_kwh": 15.5, "hwy_kwh": 18.5, "bat": 58},
+        "BYD Seal 2023": {"price": 135_000, "city_kwh": 14.5, "hwy_kwh": 17.5, "bat": 82},
+    },
+    "D – Średni": {
+        "Tesla Model Y LR 2022": {"price": 145_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 75},
+        "VW ID.4 Pro 2022": {"price": 120_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 77},
+        "Hyundai Ioniq 5 LR 2022": {"price": 135_000, "city_kwh": 16.5, "hwy_kwh": 19.5, "bat": 77},
+        "Skoda Enyaq 80 2022": {"price": 125_000, "city_kwh": 17.5, "hwy_kwh": 20.5, "bat": 77},
+    },
+    "E – Wyższy": {
+        "BMW iX1 eDrive20 2023": {"price": 155_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 65},
+        "Lexus UX 300e 2022": {"price": 135_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 54},
+        "Tesla Model Y LR AWD 2022": {"price": 175_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 75},
+    },
 }
+
+CAR_SEGMENTS = ["A – Mini", "B – Małe", "C – Kompakt", "D – Średni", "E – Wyższy"]
 
 # ---------------------------------------------------------------------------
 # ODCZYT PARAMETRÓW Z URL (query_params) — umożliwia udostępnianie linku
@@ -1173,15 +1251,23 @@ with col_ice:
         "Stan ICE", ["Nowy", "Używany"], horizontal=True, key="is_new_ice",
         help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
     ) == "Nowy"
-    ice_presets = ICE_PRESETS_NEW if is_new_ice else ICE_PRESETS_USED
-    ice_preset_name = st.selectbox(
-        "Popularny model ICE",
-        list(ice_presets.keys()),
-        index=0,
-        help="Wybierz model z listy – cena i spalanie wypełnią się automatycznie. "
-             "Wybierz 'Własne parametry' aby wpisać ręcznie.",
+    ice_presets_all = ICE_PRESETS_NEW if is_new_ice else ICE_PRESETS_USED
+    ice_segment_opts = ["Własne parametry"] + CAR_SEGMENTS
+    ice_segment = st.selectbox(
+        "Segment ICE", ice_segment_opts, index=3, key="seg_ice",
+        help="A=mini, B=małe, C=kompakt, D=średni/SUV, E=wyższy. "
+             "Własne parametry = wpisz ręcznie.",
     )
-    ice_p = ice_presets[ice_preset_name]
+    if ice_segment == "Własne parametry":
+        ice_p = _CUSTOM_ICE_NEW if is_new_ice else _CUSTOM_ICE_USED
+        ice_preset_name = "Własne parametry"
+    else:
+        ice_models = ice_presets_all.get(ice_segment, {})
+        ice_preset_name = st.selectbox(
+            "Model ICE", list(ice_models.keys()), index=0,
+            help="Wybierz model – cena i spalanie wypełnią się automatycznie.",
+        )
+        ice_p = ice_models[ice_preset_name]
     ice_model = st.text_input(
         "Marka i model ICE",
         value=ice_preset_name if ice_preset_name != "Własne parametry" else (
@@ -1243,15 +1329,23 @@ with col_bev:
         "Stan BEV", ["Nowy", "Używany"], horizontal=True, key="is_new_bev",
         help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
     ) == "Nowy"
-    bev_presets = BEV_PRESETS_NEW if is_new_bev else BEV_PRESETS_USED
-    bev_preset_name = st.selectbox(
-        "Popularny model BEV",
-        list(bev_presets.keys()),
-        index=0,
-        help="Wybierz model z listy – cena, zużycie i bateria wypełnią się automatycznie. "
-             "Wybierz 'Własne parametry' aby wpisać ręcznie.",
+    bev_presets_all = BEV_PRESETS_NEW if is_new_bev else BEV_PRESETS_USED
+    bev_segment_opts = ["Własne parametry"] + CAR_SEGMENTS
+    bev_segment = st.selectbox(
+        "Segment BEV", bev_segment_opts, index=4, key="seg_bev",
+        help="A=mini, B=małe, C=kompakt, D=średni/SUV, E=wyższy. "
+             "Własne parametry = wpisz ręcznie.",
     )
-    bev_p = bev_presets[bev_preset_name]
+    if bev_segment == "Własne parametry":
+        bev_p = _CUSTOM_BEV_NEW if is_new_bev else _CUSTOM_BEV_USED
+        bev_preset_name = "Własne parametry"
+    else:
+        bev_models = bev_presets_all.get(bev_segment, {})
+        bev_preset_name = st.selectbox(
+            "Model BEV", list(bev_models.keys()), index=0,
+            help="Wybierz model – cena, zużycie i bateria wypełnią się automatycznie.",
+        )
+        bev_p = bev_models[bev_preset_name]
     bev_model = st.text_input(
         "Marka i model BEV",
         value=bev_preset_name if bev_preset_name != "Własne parametry" else (
