@@ -1,3 +1,4 @@
+APP_VERSION = "0.9.0"
 """
 Kalkulator TCO: Auto Elektryczne (BEV) vs Spalinowe (ICE)
 z optymalizacją harmonogramu ładowania HiGHS.
@@ -46,7 +47,7 @@ with st.sidebar:
         "[pawel@mamcarz.com](mailto:pawel@mamcarz.com) | "
         "+48 535 535 221"
     )
-    st.caption("© 2026 Paweł Mamcarz. Wszelkie prawa zastrzeżone.")
+    st.caption(f"© 2026 Paweł Mamcarz. Wszelkie prawa zastrzeżone. v{APP_VERSION}")
 
 st.title("Kalkulator TCO: Auto Elektryczne vs Spalinowe")
 st.caption(
@@ -1864,7 +1865,7 @@ with col_f2:
     st.image("logo.png", width=280)
     st.markdown(
         '<div style="text-align: center; color: #666; font-size: 0.85em;">'
-        '© 2026 <strong>Paweł Mamcarz</strong>. Wszelkie prawa zastrzeżone.<br>'
+        f'© 2026 <strong>Paweł Mamcarz</strong>. Wszelkie prawa zastrzeżone. v{APP_VERSION}<br>'
         'Optymalizacja z użyciem <strong>HiGHS</strong> (Linear Programming). '
         'Dane rynkowe 2025/2026, bieżące ceny paliw.<br>'
         '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
