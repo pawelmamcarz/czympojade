@@ -1,8 +1,8 @@
-# Kalkulator TCO: Auto Elektryczne (BEV) vs Spalinowe (ICE)
+# Kalkulator kosztów: Auto Elektryczne (BEV) vs Spalinowe (ICE)
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.13.0"
 
 import streamlit as st
 import numpy as np
@@ -10,6 +10,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import highspy
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestRegressor
 
 try:
     import requests
@@ -22,7 +25,7 @@ except ImportError:
 # KONFIGURACJA STRONY
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Kalkulator TCO – EV vs ICE",
+    page_title="Czy mi się opłaca auto elektryczne?",
     page_icon="⚡",
     layout="wide",
 )
@@ -34,7 +37,7 @@ with st.sidebar:
     st.image("logo.png", use_container_width=True)
     st.markdown("---")
     st.markdown(
-        "**Kalkulator TCO** EV vs ICE\n\n"
+        "**Kalkulator kosztów** EV vs ICE\n\n"
         "Optymalizacja kosztów z użyciem solvera **HiGHS** "
         "(programowanie liniowe). Dane rynkowe 2025/2026, "
         "bieżące ceny paliw z e-petrol.pl."
@@ -49,13 +52,13 @@ with st.sidebar:
     st.markdown(
         "**Solver:** [HiGHS](https://highs.dev/) MILP\n\n"
         "Mixed-Integer Linear Programming do optymalizacji "
-        "harmonogramu ładowania BEV. Taryfa G14dynamic."
+        "harmonogramu ładowania BEV."
     )
     st.caption(f"© 2026 Paweł Mamcarz. Wszelkie prawa zastrzeżone. v{APP_VERSION}")
 
-st.title("Kalkulator TCO: Auto Elektryczne vs Spalinowe")
+st.title("Czy mi się opłaca auto elektryczne?")
 st.caption(
-    "Optymalizacja z użyciem **HiGHS** (Linear Programming). "
+    "Porównanie pełnych kosztów posiadania auta elektrycznego i spalinowego. "
     "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
     "tarcza podatkowa 2026 i wpływ temperatury na zużycie."
 )
@@ -307,6 +310,138 @@ def greenway_optimal_plan(annual_dc_kwh: float) -> dict:
         }
     best = min(results, key=lambda k: results[k]["annual_cost"])
     return {"plans": results, "best": best, "best_data": results[best]}
+
+
+# ---------------------------------------------------------------------------
+# ML – SYNTETYCZNE DANE, KLASTERYZACJA, PROGNOZA
+# ---------------------------------------------------------------------------
+
+CLUSTER_NAMES = {
+    0: ("Miejski Commuter", "Krótkie trasy miejskie, bez PV, prywatne użytkowanie"),
+    1: ("Rodzinny Podmiejski", "Średni przebieg, mieszana jazda miasto/trasa"),
+    2: ("Firmowy Flota", "Duży przebieg, trasa, użytkowanie firmowe"),
+    3: ("Eco-Prosument", "PV + magazyn energii, świadomy energetycznie"),
+    4: ("Long-Distance Traveler", "Bardzo duży przebieg, dominuje trasa"),
+    5: ("Weekend Driver", "Mały przebieg, głównie miasto, rekreacyjnie"),
+}
+
+
+def generate_synthetic_profiles(n: int = 1000) -> pd.DataFrame:
+    rng = np.random.RandomState(42)
+    mileage = np.exp(rng.normal(np.log(15000), 0.6, n)).clip(5000, 80000).astype(int)
+    city = rng.beta(3, 2, n).clip(0.10, 0.95)
+    home_charger = rng.binomial(1, 0.60, n)
+    pv = np.where(rng.random(n) < 0.30, rng.uniform(3, 20, n).round(1), 0.0)
+    bess = np.where(pv > 0, np.where(rng.random(n) < 0.35, rng.uniform(5, 30, n).round(0), 0.0), 0.0)
+    heat_pump = np.where(pv > 0, rng.binomial(1, 0.40, n), rng.binomial(1, 0.08, n))
+    tax = rng.choice([0.12, 0.19, 0.32], n, p=[0.35, 0.45, 0.20])
+    usage = rng.choice([0, 1, 2], n, p=[0.30, 0.25, 0.45])
+    # Real-world factor: zależy od city%, przebiegu, stylu
+    base_bev = 1.08 + 0.15 * city + 0.05 * (mileage < 10000) + rng.normal(0, 0.03, n)
+    rw_bev = base_bev.clip(1.05, 1.35)
+    base_ice = 1.04 + 0.10 * city + rng.normal(0, 0.02, n)
+    rw_ice = base_ice.clip(1.02, 1.20)
+    return pd.DataFrame({
+        "annual_mileage": mileage, "city_pct": city,
+        "has_home_charger": home_charger, "pv_kwp": pv,
+        "bess_kwh": bess, "has_heat_pump": heat_pump,
+        "tax_rate": tax, "usage_type": usage,
+        "rw_factor_bev": rw_bev, "rw_factor_ice": rw_ice,
+    })
+
+
+def build_cluster_model(df: pd.DataFrame):
+    features = ["annual_mileage", "city_pct", "has_home_charger", "pv_kwp", "has_heat_pump", "usage_type"]
+    X = df[features].values
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    km = KMeans(n_clusters=6, random_state=42, n_init=10)
+    km.fit(X_scaled)
+    # Posortuj klastry wg centroidów dla stabilnych nazw
+    centroids = scaler.inverse_transform(km.cluster_centers_)
+    order = np.argsort(centroids[:, 0])  # sortuj po annual_mileage
+    label_map = {old: new for new, old in enumerate(order)}
+    return km, scaler, features, label_map
+
+
+def build_realworld_model(df: pd.DataFrame):
+    features = ["city_pct", "annual_mileage", "has_home_charger", "pv_kwp"]
+    X = df[features].values
+    y_bev = df["rw_factor_bev"].values
+    y_ice = df["rw_factor_ice"].values
+    rf_bev = RandomForestRegressor(n_estimators=50, max_depth=6, random_state=42)
+    rf_bev.fit(X, y_bev)
+    rf_ice = RandomForestRegressor(n_estimators=50, max_depth=6, random_state=42)
+    rf_ice.fit(X, y_ice)
+    r2_bev = rf_bev.score(X, y_bev)
+    r2_ice = rf_ice.score(X, y_ice)
+    return rf_bev, rf_ice, features, r2_bev, r2_ice
+
+
+@st.cache_resource
+def get_ml_models():
+    profiles = generate_synthetic_profiles(1000)
+    km, scaler, cl_features, label_map = build_cluster_model(profiles)
+    rf_bev, rf_ice, rw_features, r2_bev, r2_ice = build_realworld_model(profiles)
+    return {
+        "km": km, "scaler": scaler, "cl_features": cl_features, "label_map": label_map,
+        "rf_bev": rf_bev, "rf_ice": rf_ice, "rw_features": rw_features,
+        "r2_bev": r2_bev, "r2_ice": r2_ice, "profiles": profiles,
+    }
+
+
+def predict_cluster(ml, user_vals: dict) -> dict:
+    X = np.array([[user_vals[f] for f in ml["cl_features"]]])
+    X_scaled = ml["scaler"].transform(X)
+    raw_label = ml["km"].predict(X_scaled)[0]
+    cluster_id = ml["label_map"][raw_label]
+    name, desc = CLUSTER_NAMES[cluster_id]
+    # Odległość do centroidu (podobieństwo)
+    centroid = ml["km"].cluster_centers_[raw_label]
+    dist = np.linalg.norm(X_scaled[0] - centroid)
+    similarity = max(0, 100 - dist * 15)  # skalowanie do 0-100%
+    # Centroid w oryginalnej skali
+    centroid_orig = ml["scaler"].inverse_transform(centroid.reshape(1, -1))[0]
+    return {
+        "cluster_id": cluster_id, "name": name, "desc": desc,
+        "similarity": similarity,
+        "centroid": dict(zip(ml["cl_features"], centroid_orig)),
+        "user": user_vals,
+    }
+
+
+def predict_realworld(ml, city_pct, annual_mileage, has_home_charger, pv_kwp):
+    X = np.array([[city_pct, annual_mileage, int(has_home_charger), pv_kwp]])
+    return ml["rf_bev"].predict(X)[0], ml["rf_ice"].predict(X)[0]
+
+
+def forecast_monthly_costs(
+    annual_energy_cost: float, fuel_cost_annual: float,
+    bev_city_kwh: float, bev_highway_kwh: float, city_pct: float,
+    ice_city_l: float, ice_highway_l: float, fuel_price: float,
+    annual_mileage: float,
+) -> pd.DataFrame:
+    monthly_km = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
+    months = MONTH_NAMES_PL
+    bev_costs, ice_costs = [], []
+    for m in range(12):
+        t = TEMPS_PL[m]
+        bev_mult = bev_temp_multiplier(t, "city") * city_pct + bev_temp_multiplier(t, "highway") * (1 - city_pct)
+        ice_mult = ice_temp_multiplier(t, "city") * city_pct + ice_temp_multiplier(t, "highway") * (1 - city_pct)
+        bev_base = monthly_km[m] / 100 * (city_pct * bev_city_kwh + (1 - city_pct) * bev_highway_kwh)
+        bev_real = bev_base * bev_mult
+        bev_cost = bev_real / (annual_mileage / 100 * (city_pct * bev_city_kwh + (1 - city_pct) * bev_highway_kwh)) * annual_energy_cost if annual_energy_cost > 0 else 0
+        ice_liters = monthly_km[m] / 100 * (city_pct * ice_city_l + (1 - city_pct) * ice_highway_l) * ice_mult
+        ice_cost = ice_liters * fuel_price
+        bev_costs.append(round(bev_cost, 0))
+        ice_costs.append(round(ice_cost, 0))
+    savings = [int(ic - bc) for ic, bc in zip(ice_costs, bev_costs)]
+    return pd.DataFrame({
+        "Miesiąc": months,
+        "BEV (zł)": bev_costs,
+        "ICE (zł)": ice_costs,
+        "Oszczędność (zł)": savings,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -830,11 +965,12 @@ with col_ice:
         help="Np. Toyota Corolla 1.8, VW Golf 2.0 TDI, Dacia Duster 1.5 dCi",
     )
     vehicle_price_ice = st.number_input(
-        "Cena zakupu / leasingu ICE (zł)",
+        "Cena zakupu / leasingu ICE – brutto (zł)",
         min_value=5_000, max_value=1_000_000,
         value=ice_p["price"],
         step=5_000,
-        help="Wpisz cenę swojego pojazdu – z otomoto.pl, salonu lub umowy leasingu.",
+        help="Cena brutto (z VAT). Cała analiza TCO opiera się na kwotach brutto – "
+             "realnych wydatkach cashflow. Tarcza podatkowa odlicza VAT i KUP osobno.",
     )
     fuel_type = st.selectbox(
         "Rodzaj paliwa",
@@ -859,11 +995,12 @@ with col_bev:
         help="Np. Tesla Model Y LR, BYD Atto 3, Hyundai Ioniq 5",
     )
     vehicle_price_bev = st.number_input(
-        "Cena zakupu / leasingu BEV (zł)",
+        "Cena zakupu / leasingu BEV – brutto (zł)",
         min_value=5_000, max_value=1_000_000,
         value=bev_p["price"],
         step=5_000,
-        help="Wpisz cenę swojego pojazdu – z otomoto.pl, salonu lub umowy leasingu.",
+        help="Cena brutto (z VAT). Cała analiza TCO opiera się na kwotach brutto – "
+             "realnych wydatkach cashflow. Tarcza podatkowa odlicza VAT i KUP osobno.",
     )
 
 # Auto-detect segments for maintenance calculations
@@ -968,7 +1105,15 @@ with col3:
     )
     has_home_charger = st.checkbox("Ładowarka domowa (wallbox AC 11 kW)", value=True)
 with col4:
-    pv_kwp = st.number_input("Instalacja PV (kWp)", min_value=0.0, max_value=50.0, value=5.0, step=0.5)
+    pv_kwp = st.number_input(
+        "Instalacja PV (kWp)", min_value=0.0, max_value=50.0, value=5.0, step=0.5,
+        help="Moc instalacji fotowoltaicznej w kWp. W Polsce ~1 000 kWh/kWp rocznie. "
+             "Np. 5 kWp → ~5 000 kWh/rok (~417 kWh/mies.). "
+             "Sprawdź na fakturze z instalatora lub w aplikacji inwertera.",
+    )
+    if pv_kwp > 0:
+        _pv_yr = pv_kwp * 1000
+        st.caption(f"Szacowana produkcja: **~{_pv_yr:,.0f} kWh/rok** (~{_pv_yr / 12:.0f} kWh/mies.)")
     bess_kwh = st.number_input("Magazyn energii domowy (kWh)", min_value=0.0, max_value=150.0, value=0.0, step=5.0)
     has_heat_pump = st.checkbox(
         "Pompa ciepła (PC) w domu", value=False,
@@ -1145,7 +1290,10 @@ with st.expander("Podgląd wpływu temperatury na zużycie (miesięcznie)"):
 # OBLICZENIA TCO
 # ===========================================================================
 
-if st.button("Oblicz TCO", type="primary", use_container_width=True):
+if st.button("Oblicz koszty", type="primary", use_container_width=True):
+    st.session_state["tco_calculated"] = True
+
+if st.session_state.get("tco_calculated", False):
     total_mileage = annual_mileage * period_years
     monthly_km = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
 
@@ -1230,8 +1378,11 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
     # WYNIKI
     # ===================================================================
     st.divider()
-    st.header("Wyniki analizy TCO")
-    st.caption(f"**{ice_model}** vs **{bev_model}** | {total_mileage:,} km w {period_years} lata")
+    st.header("Wyniki analizy kosztów")
+    st.caption(
+        f"**{ice_model}** vs **{bev_model}** | {total_mileage:,} km w {period_years} lata | "
+        "Wszystkie kwoty **brutto** (cashflow z VAT). Tarcza podatkowa odliczona osobno."
+    )
 
     # SMART ALERT
     is_cheap_ice = vehicle_price_ice <= 35_000 and not is_new
@@ -1249,8 +1400,9 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
             f"**TCO BEV: {tco_bev:,.0f} zł** vs **TCO ICE: {tco_ice:,.0f} zł**"
         )
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Podsumowanie", "Wpływ temperatury", "Struktura ładowania BEV", "Szczegółowe zestawienie"
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Podsumowanie", "Wpływ temperatury", "Struktura ładowania BEV",
+        "Szczegółowe zestawienie", "ML Insights",
     ])
 
     with tab1:
@@ -1515,7 +1667,7 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
                 )
 
     with tab4:
-        st.subheader("Szczegółowe zestawienie kosztów")
+        st.subheader("Szczegółowe zestawienie kosztów (brutto / cashflow)")
 
         avg_bev_real = annual_energy_demand / annual_mileage * 100 if annual_mileage > 0 else 0
         avg_ice_real = ice_liters_annual / annual_mileage * 100 if annual_mileage > 0 else 0
@@ -1524,7 +1676,7 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
             "Kategoria": [
                 "Pojazd",
                 "Stan",
-                "Cena zakupu / leasingu",
+                "Cena zakupu / leasingu (brutto)",
                 f"Paliwo / Prąd ({period_years} lata)",
                 f"Serwis i naprawy ({period_years} lata)",
                 f"Ubezpieczenie OC+AC ({period_years} lata)",
@@ -1679,6 +1831,181 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
             "na zużycie obu napędów, oraz rozbicie kosztów serwisowych. "
             "Ceny paliw aktualizowane z e-petrol.pl."
         )
+
+    # ===================================================================
+    # TAB 5 – ML INSIGHTS
+    # ===================================================================
+    with tab5:
+        ml = get_ml_models()
+
+        # --- Klasteryzacja profilu ---
+        st.subheader("Twój profil kierowcy")
+        user_features = {
+            "annual_mileage": annual_mileage,
+            "city_pct": city_pct,
+            "has_home_charger": int(has_home_charger),
+            "pv_kwp": pv_kwp,
+            "has_heat_pump": int(has_heat_pump),
+            "usage_type": {"firmowe": 0, "mieszane": 1, "prywatne": 2}.get(usage_type, 2),
+        }
+        cl_auto = predict_cluster(ml, user_features)
+
+        # Selectbox do zmiany klastra
+        cluster_options = [f"Auto: {cl_auto['name']} ({cl_auto['similarity']:.0f}%)"]
+        cluster_options += [f"{CLUSTER_NAMES[i][0]}" for i in range(6)]
+        selected_cluster = st.selectbox(
+            "Klaster kierowcy",
+            cluster_options,
+            index=0,
+            help="Model ML automatycznie przypisał Ci klaster na podstawie parametrów. "
+                 "Możesz wybrać inny klaster, żeby zobaczyć jak zmienią się wyniki.",
+        )
+        if selected_cluster.startswith("Auto:"):
+            cl = cl_auto
+        else:
+            # Ręcznie wybrany klaster — pobierz centroid
+            override_id = next(i for i in range(6) if CLUSTER_NAMES[i][0] == selected_cluster)
+            # Znajdź surowy label odpowiadający temu cluster_id
+            inv_map = {v: k for k, v in ml["label_map"].items()}
+            raw_label = inv_map[override_id]
+            centroid_scaled = ml["km"].cluster_centers_[raw_label]
+            centroid_orig = ml["scaler"].inverse_transform(centroid_scaled.reshape(1, -1))[0]
+            X = np.array([[user_features[f] for f in ml["cl_features"]]])
+            X_scaled = ml["scaler"].transform(X)
+            dist = np.linalg.norm(X_scaled[0] - centroid_scaled)
+            similarity = max(0, 100 - dist * 15)
+            name, desc = CLUSTER_NAMES[override_id]
+            cl = {
+                "cluster_id": override_id, "name": name, "desc": desc,
+                "similarity": similarity,
+                "centroid": dict(zip(ml["cl_features"], centroid_orig)),
+                "user": user_features,
+            }
+
+        st.info(f"**Klaster: {cl['name']}**\n\n{cl['desc']}")
+
+        col_cl1, col_cl2 = st.columns(2)
+        with col_cl1:
+            st.metric("Podobieństwo do klastra", f"{cl['similarity']:.0f}%")
+        with col_cl2:
+            st.metric("Klaster nr", f"{cl['cluster_id'] + 1} / 6")
+
+        # Radar chart: user vs centroid
+        radar_labels = ["Przebieg (tys. km)", "Miasto (%)", "Ładow. domowa",
+                        "PV (kWp)", "Pompa ciepła", "Użytkowanie"]
+        user_vals_norm = [
+            annual_mileage / 80000,
+            city_pct,
+            int(has_home_charger),
+            pv_kwp / 20,
+            int(has_heat_pump),
+            user_features["usage_type"] / 2,
+        ]
+        centroid_norm = [
+            cl["centroid"]["annual_mileage"] / 80000,
+            cl["centroid"]["city_pct"],
+            cl["centroid"]["has_home_charger"],
+            cl["centroid"]["pv_kwp"] / 20,
+            cl["centroid"]["has_heat_pump"],
+            cl["centroid"]["usage_type"] / 2,
+        ]
+        fig_radar = go.Figure()
+        fig_radar.add_trace(go.Scatterpolar(
+            r=user_vals_norm + [user_vals_norm[0]],
+            theta=radar_labels + [radar_labels[0]],
+            fill="toself", name="Twój profil",
+            fillcolor="rgba(59, 130, 246, 0.2)", line_color="#3b82f6",
+        ))
+        fig_radar.add_trace(go.Scatterpolar(
+            r=centroid_norm + [centroid_norm[0]],
+            theta=radar_labels + [radar_labels[0]],
+            fill="toself", name=f"Centroid: {cl['name']}",
+            fillcolor="rgba(239, 68, 68, 0.15)", line_color="#ef4444",
+        ))
+        fig_radar.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+            title="Profil vs centroid klastra",
+            height=420, showlegend=True,
+        )
+        st.plotly_chart(fig_radar, use_container_width=True)
+
+        # --- Korekta real-world ---
+        st.subheader("Korekta real-world (ML)")
+        rw_bev, rw_ice = predict_realworld(ml, city_pct, annual_mileage, has_home_charger, pv_kwp)
+        col_rw1, col_rw2 = st.columns(2)
+        with col_rw1:
+            nominal_bev = city_pct * bev_city_kwh + (1 - city_pct) * bev_highway_kwh
+            corrected_bev = nominal_bev * rw_bev
+            st.metric(
+                f"BEV: mnożnik ×{rw_bev:.2f}",
+                f"{corrected_bev:.1f} kWh/100km",
+                delta=f"+{(rw_bev - 1) * 100:.0f}% vs katalog ({nominal_bev:.1f})",
+                delta_color="inverse",
+            )
+        with col_rw2:
+            nominal_ice = city_pct * ice_city_l + (1 - city_pct) * ice_highway_l
+            corrected_ice = nominal_ice * rw_ice
+            st.metric(
+                f"ICE: mnożnik ×{rw_ice:.2f}",
+                f"{corrected_ice:.1f} L/100km",
+                delta=f"+{(rw_ice - 1) * 100:.0f}% vs katalog ({nominal_ice:.1f})",
+                delta_color="inverse",
+            )
+        st.caption(
+            f"Model: RandomForest (n=1000 syntetycznych profili, "
+            f"R² BEV={ml['r2_bev']:.3f}, R² ICE={ml['r2_ice']:.3f})"
+        )
+
+        # --- Prognoza 12-miesięczna ---
+        st.subheader("Prognoza kosztów energii – 12 miesięcy")
+        df_forecast = forecast_monthly_costs(
+            energy_cost_annual, fuel_cost_annual,
+            bev_city_kwh, bev_highway_kwh, city_pct,
+            ice_city_l, ice_highway_l, fuel_price,
+            annual_mileage,
+        )
+        fig_fc = go.Figure()
+        fig_fc.add_trace(go.Bar(
+            x=df_forecast["Miesiąc"], y=df_forecast["BEV (zł)"],
+            name="BEV", marker_color="#3b82f6",
+        ))
+        fig_fc.add_trace(go.Bar(
+            x=df_forecast["Miesiąc"], y=df_forecast["ICE (zł)"],
+            name="ICE", marker_color="#ef4444",
+        ))
+        fig_fc.update_layout(
+            title="Miesięczne koszty energii/paliwa (z sezonowością)",
+            yaxis_title="Koszt (zł)", barmode="group", height=400,
+        )
+        st.plotly_chart(fig_fc, use_container_width=True)
+
+        total_bev_fc = sum(df_forecast["BEV (zł)"])
+        total_ice_fc = sum(df_forecast["ICE (zł)"])
+        col_fc1, col_fc2, col_fc3 = st.columns(3)
+        with col_fc1:
+            st.metric("BEV roczny", f"{total_bev_fc:,.0f} zł")
+        with col_fc2:
+            st.metric("ICE roczny", f"{total_ice_fc:,.0f} zł")
+        with col_fc3:
+            st.metric("Oszczędność", f"{total_ice_fc - total_bev_fc:,.0f} zł/rok")
+
+        st.dataframe(df_forecast, use_container_width=True, hide_index=True)
+
+        # --- Metodologia ---
+        with st.expander("Metodologia ML"):
+            st.markdown(
+                "**Dane treningowe:** 1000 syntetycznych profili kierowców (rozkłady "
+                "zbliżone do polskiego rynku: przebieg log-normalny, mediana ~15 tys. km/rok, "
+                "30% z PV, 15% z pompą ciepła).\n\n"
+                "**Klasteryzacja:** KMeans (k=6) na 6 cechach po standaryzacji (StandardScaler). "
+                "Klastry nazwane post-hoc wg centroidów.\n\n"
+                "**Korekta real-world:** RandomForest (50 drzew, max_depth=6) przewiduje "
+                "mnożnik korekcyjny zużycia vs dane katalogowe. Wyższy city% i niski przebieg "
+                "= wyższy mnożnik (częstsze rozgrzewanie, korki).\n\n"
+                "**Prognoza 12-mies.:** rozkład kosztów z uwzględnieniem sezonowości temperaturowej "
+                "(średnie miesięczne temperatury w Polsce) i mnożników zużycia BEV/ICE.\n\n"
+                "**Disclaimer:** Dane syntetyczne – wyniki mają charakter orientacyjny i edukacyjny."
+            )
 
 # ---------------------------------------------------------------------------
 # OPTYMALIZATOR HiGHS – trzy tryby zaawansowanej analizy
@@ -2066,6 +2393,7 @@ else:
             show_p["zł/km"] = show_p["zł/km"].apply(lambda x: f"{x:.2f}")
             st.dataframe(show_p, use_container_width=True, hide_index=True)
 
+
 # ---------------------------------------------------------------------------
 # SŁOWNIK SKRÓTÓW
 # ---------------------------------------------------------------------------
@@ -2084,13 +2412,19 @@ with st.expander("Słownik skrótów"):
         "| **KUP** | Koszty Uzyskania Przychodu | Koszty podatkowe w firmie |\n"
         "| **VAT** | Value Added Tax | Podatek od towarów i usług (23%) |\n"
         "| **RDN** | Rynek Dnia Następnego | Giełda energii – ceny godzinowe |\n"
+        "| **G11** | Taryfa G11 | Taryfa jednostrefowa – jedna cena całą dobę |\n"
+        "| **G12** | Taryfa G12 | Taryfa dwustrefowa – dzień/noc |\n"
+        "| **G12w** | Taryfa G12w | Taryfa weekendowa – tańszy prąd w weekendy |\n"
         "| **G14** | Taryfa G14dynamic | Dynamiczna taryfa dystrybucyjna (4 strefy cenowe) |\n"
         "| **LP/MILP** | (Mixed-Integer) Linear Programming | Programowanie liniowe – metoda optymalizacji |\n"
         "| **HiGHS** | High-performance Solver | Solver optymalizacyjny open-source |\n"
         "| **DC** | Direct Current | Szybkie ładowanie (>50 kW, Supercharger) |\n"
         "| **AC** | Alternating Current | Wolne ładowanie (3–22 kW, wallbox) |\n"
         "| **SUC** | Supercharger | Stacja szybkiego ładowania Tesla |\n"
-        "| **COP** | Coefficient of Performance | Współczynnik wydajności pompy ciepła |"
+        "| **COP** | Coefficient of Performance | Współczynnik wydajności pompy ciepła |\n"
+        "| **ML** | Machine Learning | Uczenie maszynowe – predykcja i klasteryzacja |\n"
+        "| **KMeans** | K-Means Clustering | Algorytm klasteryzacji (podział na grupy) |\n"
+        "| **RF** | Random Forest | Las losowy – model predykcyjny (regresja) |"
     )
 
 # ---------------------------------------------------------------------------
@@ -2103,7 +2437,7 @@ with col_f2:
     st.markdown(
         '<div style="text-align: center; color: #666; font-size: 0.85em;">'
         f'© 2026 <strong>Paweł Mamcarz</strong>. Wszelkie prawa zastrzeżone. v{APP_VERSION}<br>'
-        'Optymalizacja z użyciem <strong>HiGHS</strong> (Linear Programming). '
+        'Optymalizacja z użyciem <strong><a href="https://highs.dev/" target="_blank">HiGHS</a></strong> (Linear Programming). '
         'Dane rynkowe 2025/2026, bieżące ceny paliw.<br>'
         '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
         ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
