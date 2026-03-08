@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "0.15.0"
+APP_VERSION = "0.16.0"
 
 import streamlit as st
 import numpy as np
@@ -20,6 +20,21 @@ try:
     HAS_SCRAPING = True
 except ImportError:
     HAS_SCRAPING = False
+
+try:
+    from market_data import (
+        scrape_fuel_prices as db_fuel_prices,
+        get_fuel_price_history,
+        get_depreciation_curve as market_depreciation_curve,
+        get_model_depreciation,
+        scrape_car_listings,
+        scrape_electricity_prices,
+        get_data_freshness,
+        get_electricity_price_history,
+    )
+    HAS_MARKET_DB = True
+except ImportError:
+    HAS_MARKET_DB = False
 
 # ---------------------------------------------------------------------------
 # KONFIGURACJA STRONY
@@ -54,6 +69,17 @@ with st.sidebar:
         "Mixed-Integer Linear Programming do optymalizacji "
         "harmonogramu ładowania BEV."
     )
+    if HAS_MARKET_DB:
+        try:
+            _freshness = get_data_freshness()
+            if _freshness:
+                st.markdown("---")
+                st.caption(
+                    f"Dane rynkowe: {_freshness['fuel_date']}\n\n"
+                    f"Ogłoszenia w bazie: {_freshness['listings_count']:,}"
+                )
+        except Exception:
+            pass
     st.caption(f"© 2026 Paweł Mamcarz. Wszelkie prawa zastrzeżone. v{APP_VERSION}")
 
 st.title("Czym pojadę w 2026 — jakie auto mi się opłaca kupić?")
@@ -178,8 +204,13 @@ HEAT_PUMP_ANNUAL_KWH = 4500  # typowa PC w domu 100-140 m², COP ~3.5
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_fuel_prices() -> dict:
-    """Pobiera aktualne ceny paliw z e-petrol.pl. Fallback do wartości domyślnych."""
+    """Pobiera aktualne ceny paliw. Próbuje market_data DB, fallback do live scrape."""
     defaults = {"pb95": 6.50, "on": 6.40, "lpg": 3.20, "source": "domyślne"}
+    if HAS_MARKET_DB:
+        try:
+            return db_fuel_prices()
+        except Exception:
+            pass
     if not HAS_SCRAPING:
         return defaults
     try:
@@ -959,16 +990,30 @@ DEPRECIATION_CURVE_USED_BEV = {
 }
 
 
-def calculate_depreciation(vehicle_price, segment_idx, period_years, engine_type, is_new):
+def calculate_depreciation(vehicle_price, segment_idx, period_years, engine_type, is_new,
+                           make=None, model=None):
     """Deprecjacja nieliniowa z krzywą piecewise per rok.
 
+    Priorytet: krzywa per model (market data) > krzywa per engine (market data) > hardcoded.
     BEV ma ostrzejszy spadek w roku 8 (koniec gwarancji baterii HV).
     Interpolacja liniowa dla wartości niecałkowitych i > 10 lat.
     """
-    if is_new:
-        curve = DEPRECIATION_CURVE_NEW_BEV if engine_type == "BEV" else DEPRECIATION_CURVE_NEW_ICE
-    else:
-        curve = DEPRECIATION_CURVE_USED_BEV if engine_type == "BEV" else DEPRECIATION_CURVE_USED_ICE
+    curve = None
+    # Spróbuj krzywą z danych rynkowych
+    if HAS_MARKET_DB:
+        try:
+            if make and model:
+                curve = get_model_depreciation(make, model, engine_type)
+            if curve is None:
+                curve = market_depreciation_curve(engine_type, is_new)
+        except Exception:
+            pass
+    # Fallback do hardcoded
+    if curve is None:
+        if is_new:
+            curve = DEPRECIATION_CURVE_NEW_BEV if engine_type == "BEV" else DEPRECIATION_CURVE_NEW_ICE
+        else:
+            curve = DEPRECIATION_CURVE_USED_BEV if engine_type == "BEV" else DEPRECIATION_CURVE_USED_ICE
 
     years = min(period_years, 10)
     if years <= 0:
@@ -1038,6 +1083,21 @@ def calculate_tco_quick(
 
 # ---- Pobierz ceny paliw ----
 fuel_data = fetch_fuel_prices()
+
+# Codzienny scraping danych rynkowych (w tle, max raz/dzień)
+if HAS_MARKET_DB:
+    @st.cache_data(ttl=86400, show_spinner=False)
+    def _daily_market_scrape():
+        try:
+            scrape_car_listings(max_models=5)
+        except Exception:
+            pass
+        try:
+            scrape_electricity_prices()
+        except Exception:
+            pass
+        return True
+    _daily_market_scrape()
 
 # KROK 1: Dane pojazdu
 st.header("1. Twoje pojazdy")
@@ -1338,6 +1398,25 @@ with col2:
         min_value=2.0, max_value=15.0, value=default_fuel, step=0.10,
         help="Cena pobierana automatycznie z e-petrol.pl. Możesz wpisać własną.",
     )
+
+if HAS_MARKET_DB:
+    with st.expander("Trend cen paliw (ostatnie 90 dni)"):
+        _fuel_hist = get_fuel_price_history(90)
+        if not _fuel_hist.empty:
+            _fig_fh = go.Figure()
+            _fuel_names = {"pb95": "PB95", "on": "ON (Diesel)", "lpg": "LPG"}
+            for col in _fuel_hist.columns:
+                _fig_fh.add_trace(go.Scatter(
+                    x=_fuel_hist.index, y=_fuel_hist[col],
+                    name=_fuel_names.get(col, col.upper()), mode="lines+markers",
+                ))
+            _fig_fh.update_layout(
+                yaxis_title="zl/l", height=300, margin=dict(t=20, b=30),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            )
+            st.plotly_chart(_fig_fh, use_container_width=True)
+        else:
+            st.caption("Brak danych historycznych. Trend pojawi sie po kilku dniach zbierania danych.")
 
 st.subheader("Spalanie ICE (nominalne)")
 col_ic1, col_ic2 = st.columns(2)
