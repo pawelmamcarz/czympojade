@@ -45,43 +45,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# ---------------------------------------------------------------------------
-# SIDEBAR – Logo + kontakt
-# ---------------------------------------------------------------------------
-with st.sidebar:
-    st.image("logo.png", use_container_width=True)
-    st.markdown("---")
-    st.markdown(
-        "**Kalkulator kosztów** EV vs ICE\n\n"
-        "Optymalizacja kosztów z użyciem solvera **HiGHS** "
-        "(programowanie liniowe). Dane rynkowe 2025/2026, "
-        "bieżące ceny paliw z e-petrol.pl."
-    )
-    st.markdown("---")
-    st.markdown(
-        "[LinkedIn](https://www.linkedin.com/in/pawelmamcarz/) | "
-        "[pawel@mamcarz.com](mailto:pawel@mamcarz.com) | "
-        "+48 535 535 221"
-    )
-    st.markdown("---")
-    st.markdown(
-        "**Solver:** [HiGHS](https://highs.dev/) MILP\n\n"
-        "Mixed-Integer Linear Programming do optymalizacji "
-        "harmonogramu ładowania BEV."
-    )
-    if HAS_MARKET_DB:
-        try:
-            _freshness = get_data_freshness()
-            if _freshness:
-                st.markdown("---")
-                st.caption(
-                    f"Dane rynkowe: {_freshness['fuel_date']}\n\n"
-                    f"Ogłoszenia w bazie: {_freshness['listings_count']:,}"
-                )
-        except Exception:
-            pass
-    st.caption(f"© 2026 Paweł Mamcarz. Wszelkie prawa zastrzeżone. v{APP_VERSION}")
-
 st.title("Czym pojadę w 2026 — jakie auto opłaca mi się kupić?")
 st.caption(
     "Porównanie pełnych kosztów posiadania auta elektrycznego, hybrydowego i spalinowego. "
@@ -1322,12 +1285,12 @@ st.caption(f"🚗 Profil: **{_profile_name}** — {CLUSTER_NAMES[_profile_id][1]
 
 # Domyślne wartości na podstawie profilu
 _PROFILE_DEFAULTS = {
-    0: {"mileage": 12_000, "city_pct": 0.75},    # Miejski Commuter
-    1: {"mileage": 18_000, "city_pct": 0.50},    # Rodzinny Podmiejski
-    2: {"mileage": 35_000, "city_pct": 0.30},    # Firmowy Flota
-    3: {"mileage": 15_000, "city_pct": 0.45},    # Eco-Prosument
-    4: {"mileage": 45_000, "city_pct": 0.20},    # Long-Distance Traveler
-    5: {"mileage": 8_000, "city_pct": 0.70},     # Weekend Driver
+    0: {"mileage": 12_000, "city_pct": 0.75, "financing": 1},  # Miejski Commuter → Gotówka
+    1: {"mileage": 18_000, "city_pct": 0.50, "financing": 1},  # Rodzinny Podmiejski → Gotówka
+    2: {"mileage": 35_000, "city_pct": 0.30, "financing": 0},  # Firmowy Flota → Leasing
+    3: {"mileage": 15_000, "city_pct": 0.45, "financing": 1},  # Eco-Prosument → Gotówka
+    4: {"mileage": 45_000, "city_pct": 0.20, "financing": 0},  # Long-Distance Traveler → Leasing
+    5: {"mileage": 8_000, "city_pct": 0.70, "financing": 1},   # Weekend Driver → Gotówka
 }
 _pdef = _PROFILE_DEFAULTS[_profile_id]
 
@@ -1372,8 +1335,9 @@ ICE_PRESETS_NEW = {
         "Audi A4 40 TFSI": {"price": 215_000, "city_l": 8.0, "hwy_l": 6.0, "fuel": 0},
         "Volvo S60 B4": {"price": 210_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 0},
     },
-    "V8 🏎️": {
+    "Fun Car 🏎️": {
         "Ford Mustang GT 5.0 V8": {"price": 270_000, "city_l": 15.0, "hwy_l": 10.0, "fuel": 0},
+        "BMW M3 E93 (nowy? serio?)": {"price": 380_000, "city_l": 14.0, "hwy_l": 9.0, "fuel": 0},
         "Jeep Wrangler Rubicon 392": {"price": 350_000, "city_l": 16.0, "hwy_l": 12.0, "fuel": 0},
         "Dodge Challenger R/T 5.7": {"price": 300_000, "city_l": 16.0, "hwy_l": 11.0, "fuel": 0},
     },
@@ -1408,12 +1372,13 @@ ICE_PRESETS_USED = {
         "Mercedes C 220d W205 2019": {"price": 95_000, "city_l": 7.5, "hwy_l": 5.5, "fuel": 1},
         "Audi A4 2.0 TDI B9 2019": {"price": 85_000, "city_l": 7.5, "hwy_l": 5.5, "fuel": 1},
     },
-    "V8 🏎️": {
-        "Audi A8 4.2 V8 D3 2008": {"price": 28_000, "city_l": 16.0, "hwy_l": 11.0, "fuel": 2},
-        "BMW 540i E60 V8 2007": {"price": 25_000, "city_l": 15.0, "hwy_l": 10.5, "fuel": 2},
+    "Fun Car 🏎️": {
+        "BMW M3 E93 4.0 V8 2010": {"price": 75_000, "city_l": 16.0, "hwy_l": 10.0, "fuel": 0},
+        "Audi A8 4.2 V8 D3 2008 LPG": {"price": 28_000, "city_l": 16.0, "hwy_l": 11.0, "fuel": 2},
+        "BMW 540i E60 V8 2007 LPG": {"price": 25_000, "city_l": 15.0, "hwy_l": 10.5, "fuel": 2},
         "Mercedes S500 W221 2010": {"price": 55_000, "city_l": 16.0, "hwy_l": 11.5, "fuel": 0},
         "Toyota Land Cruiser V8 4.5D 2012": {"price": 180_000, "city_l": 14.0, "hwy_l": 10.0, "fuel": 1},
-        "Ford Mustang GT 5.0 V8 2018": {"price": 130_000, "city_l": 15.0, "hwy_l": 10.0, "fuel": 2},
+        "Ford Mustang GT 5.0 V8 2018 LPG": {"price": 130_000, "city_l": 15.0, "hwy_l": 10.0, "fuel": 2},
     },
 }
 BEV_PRESETS_NEW = {
@@ -1444,6 +1409,11 @@ BEV_PRESETS_NEW = {
         "BMW iX xDrive40": {"price": 310_000, "city_kwh": 18.0, "hwy_kwh": 21.0, "bat": 77},
         "Mercedes EQE 300": {"price": 350_000, "city_kwh": 16.0, "hwy_kwh": 18.5, "bat": 90},
     },
+    "Fun Car 🏎️": {
+        "Tesla Roadster (2027)": {"price": 850_000, "city_kwh": 15.0, "hwy_kwh": 20.0, "bat": 200},
+        "Xiaomi SU7 Ultra": {"price": 350_000, "city_kwh": 18.0, "hwy_kwh": 24.0, "bat": 94},
+        "MG Cyberster GT": {"price": 280_000, "city_kwh": 18.0, "hwy_kwh": 23.0, "bat": 77},
+    },
 }
 BEV_PRESETS_USED = {
     "A – Mini": {
@@ -1470,6 +1440,11 @@ BEV_PRESETS_USED = {
         "BMW iX1 eDrive20 2023": {"price": 155_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 65},
         "Lexus UX 300e 2022": {"price": 135_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 54},
         "Tesla Model Y LR AWD 2022": {"price": 175_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 75},
+    },
+    "Fun Car 🏎️": {
+        "Tesla Model S Plaid 2022": {"price": 350_000, "city_kwh": 19.0, "hwy_kwh": 23.0, "bat": 100},
+        "Porsche Taycan 4S 2022": {"price": 320_000, "city_kwh": 20.0, "hwy_kwh": 24.0, "bat": 79},
+        "BMW iX M60 2023": {"price": 380_000, "city_kwh": 22.0, "hwy_kwh": 26.0, "bat": 112},
     },
 }
 
@@ -1524,6 +1499,14 @@ HYB_PRESETS_NEW = {
         "Volvo S60 T8 PHEV": {"price": 270_000, "city_l": 1.5, "hwy_l": 7.0, "fuel": 0,
                                "hybrid_type": "PHEV", "bat": 18.8, "city_kwh": 16.0, "hwy_kwh": 19.5, "elec_pct": 0.55},
     },
+    "Fun Car 🏎️": {
+        "BMW M5 G90 PHEV (727 KM)": {"price": 650_000, "city_l": 1.6, "hwy_l": 9.0, "fuel": 0,
+                                      "hybrid_type": "PHEV", "bat": 22.1, "city_kwh": 22.0, "hwy_kwh": 26.0, "elec_pct": 0.20},
+        "Porsche Panamera Turbo E-Hybrid": {"price": 850_000, "city_l": 1.7, "hwy_l": 10.0, "fuel": 0,
+                                             "hybrid_type": "PHEV", "bat": 25.9, "city_kwh": 23.0, "hwy_kwh": 28.0, "elec_pct": 0.25},
+        "Mercedes-AMG GT 63 S E Performance": {"price": 950_000, "city_l": 2.0, "hwy_l": 11.0, "fuel": 0,
+                                                "hybrid_type": "PHEV", "bat": 6.1, "city_kwh": 20.0, "hwy_kwh": 24.0, "elec_pct": 0.10},
+    },
 }
 
 HYB_PRESETS_USED = {
@@ -1557,6 +1540,14 @@ HYB_PRESETS_USED = {
         "Volvo XC60 T8 PHEV 2021": {"price": 165_000, "city_l": 2.0, "hwy_l": 8.0, "fuel": 0,
                                      "hybrid_type": "PHEV", "bat": 11.6, "city_kwh": 17.0, "hwy_kwh": 20.5, "elec_pct": 0.45},
     },
+    "Fun Car 🏎️": {
+        "BMW i8 2019": {"price": 130_000, "city_l": 2.5, "hwy_l": 8.5, "fuel": 0,
+                         "hybrid_type": "PHEV", "bat": 11.6, "city_kwh": 14.0, "hwy_kwh": 17.0, "elec_pct": 0.30},
+        "Porsche Cayenne E-Hybrid 2021": {"price": 280_000, "city_l": 3.0, "hwy_l": 10.0, "fuel": 0,
+                                           "hybrid_type": "PHEV", "bat": 17.9, "city_kwh": 20.0, "hwy_kwh": 24.0, "elec_pct": 0.30},
+        "Porsche Panamera 4 E-Hybrid 2020": {"price": 250_000, "city_l": 2.5, "hwy_l": 9.5, "fuel": 0,
+                                              "hybrid_type": "PHEV", "bat": 14.1, "city_kwh": 18.0, "hwy_kwh": 22.0, "elec_pct": 0.25},
+    },
 }
 
 CAR_SEGMENTS = ["A – Mini", "B – Małe", "C – Kompakt", "D – Średni", "E – Wyższy"]
@@ -1582,7 +1573,7 @@ with col_ice:
         help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
     ) == "Nowy"
     ice_presets_all = ICE_PRESETS_NEW if is_new_ice else ICE_PRESETS_USED
-    ice_segment_opts = ["Własne parametry"] + CAR_SEGMENTS
+    ice_segment_opts = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️"]
     ice_segment = st.selectbox(
         "Segment ICE", ice_segment_opts, index=3, key="seg_ice",
         help="A=mini, B=małe, C=kompakt, D=średni/SUV, E=wyższy. "
@@ -1614,7 +1605,7 @@ with col_ice:
     financing_mode_ice = st.radio(
         "Forma finansowania ICE",
         ["Leasing", "Gotówka"],
-        horizontal=True, index=0,
+        horizontal=True, index=_pdef["financing"],
         help="Leasing: wpłata + raty + wykup. Gotówka: jednorazowy zakup.",
     )
     leasing_ice = None
@@ -1666,7 +1657,7 @@ with col_hyb:
         help="Nowy = auto z salonu. Używany = z rynku wtórnego.",
     ) == "Nowy"
     hyb_presets_all = HYB_PRESETS_NEW if is_new_hyb else HYB_PRESETS_USED
-    hyb_segment_opts = ["Własne parametry"] + CAR_SEGMENTS
+    hyb_segment_opts = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️"]
     hyb_segment = st.selectbox(
         "Segment Hybryda", hyb_segment_opts, index=4, key="seg_hyb",
         help="A=mini, B=małe, C=kompakt, D=średni/SUV, E=wyższy.",
@@ -1699,7 +1690,7 @@ with col_hyb:
     financing_mode_hyb = st.radio(
         "Forma finansowania HYB",
         ["Leasing", "Gotówka"],
-        horizontal=True, index=0,
+        horizontal=True, index=_pdef["financing"],
         help="Leasing: wpłata + raty + wykup. Gotówka: jednorazowy zakup.",
     )
     leasing_hyb = None
@@ -1752,7 +1743,7 @@ with col_bev:
         help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
     ) == "Nowy"
     bev_presets_all = BEV_PRESETS_NEW if is_new_bev else BEV_PRESETS_USED
-    bev_segment_opts = ["Własne parametry"] + CAR_SEGMENTS
+    bev_segment_opts = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️"]
     bev_segment = st.selectbox(
         "Segment BEV", bev_segment_opts, index=4, key="seg_bev",
         help="A=mini, B=małe, C=kompakt, D=średni/SUV, E=wyższy. "
@@ -1784,7 +1775,7 @@ with col_bev:
     financing_mode_bev = st.radio(
         "Forma finansowania BEV",
         ["Leasing", "Gotówka"],
-        horizontal=True, index=0,
+        horizontal=True, index=_pdef["financing"],
         help="Leasing: wpłata + raty + wykup. Gotówka: jednorazowy zakup.",
     )
     leasing_bev = None
@@ -3665,7 +3656,7 @@ with opt_tab_b:
 # ---- TAB C: PORÓWNANIE FLOTY ----
 with opt_tab_c:
     st.markdown(
-        "Porównaj modele z wielu segmentów. Ustaw **ilość** pojazdów per model, "
+        "Porównaj modele z wielu segmentów. Ustaw **liczbę** pojazdów per model, "
         "aby zasymulować zakup floty (np. 50 aut: 10 × seg. A, 20 × seg. B, reszta C/D)."
     )
 
@@ -3689,12 +3680,12 @@ with opt_tab_c:
     _FUEL_NAMES = ["PB95", "ON", "LPG"]
     _fleet_rows = []
     # Add user's selected cars first (segment = "—")
-    _fleet_rows.append({"Segment": "—", "Model": ice_model, "Ilość": 1,
+    _fleet_rows.append({"Segment": "—", "Model": ice_model, "Liczba": 1,
                         "Cena (zł)": int(vehicle_price_ice),
                         "Napęd": "ICE", "Paliwo": _FUEL_NAMES[fuel_type_idx],
                         "Miasto (l)": ice_city_l, "Trasa (l)": ice_highway_l,
                         "Miasto (kWh)": 0.0, "Trasa (kWh)": 0.0, "Bat (kWh)": 0, "Elec%": 0.0})
-    _fleet_rows.append({"Segment": "—", "Model": hyb_model, "Ilość": 1,
+    _fleet_rows.append({"Segment": "—", "Model": hyb_model, "Liczba": 1,
                         "Cena (zł)": int(vehicle_price_hyb),
                         "Napęd": hyb_type, "Paliwo": "PB95",
                         "Miasto (l)": hyb_city_l, "Trasa (l)": hyb_highway_l,
@@ -3702,7 +3693,7 @@ with opt_tab_c:
                         "Trasa (kWh)": hyb_highway_kwh if hyb_type == "PHEV" else 0.0,
                         "Bat (kWh)": hyb_bat_cap if hyb_type == "PHEV" else 0,
                         "Elec%": hyb_elec_pct if hyb_type == "PHEV" else 0.0})
-    _fleet_rows.append({"Segment": "—", "Model": bev_model, "Ilość": 1,
+    _fleet_rows.append({"Segment": "—", "Model": bev_model, "Liczba": 1,
                         "Cena (zł)": int(vehicle_price_bev),
                         "Napęd": "BEV", "Paliwo": "—",
                         "Miasto (l)": 0.0, "Trasa (l)": 0.0,
@@ -3714,7 +3705,7 @@ with opt_tab_c:
         _seg_short = _seg.split(" ")[0]  # "A", "B", etc.
         for name, cfg in _ice_src.get(_seg, {}).items():
             if name not in _used_models:
-                _fleet_rows.append({"Segment": _seg_short, "Model": name, "Ilość": 1,
+                _fleet_rows.append({"Segment": _seg_short, "Model": name, "Liczba": 1,
                                     "Cena (zł)": cfg["price"],
                                     "Napęd": "ICE", "Paliwo": _FUEL_NAMES[cfg.get("fuel", 0)],
                                     "Miasto (l)": cfg["city_l"], "Trasa (l)": cfg["hwy_l"],
@@ -3722,7 +3713,7 @@ with opt_tab_c:
         for name, cfg in _hyb_src.get(_seg, {}).items():
             if name not in _used_models:
                 ht = cfg.get("hybrid_type", "HEV")
-                _fleet_rows.append({"Segment": _seg_short, "Model": name, "Ilość": 1,
+                _fleet_rows.append({"Segment": _seg_short, "Model": name, "Liczba": 1,
                                     "Cena (zł)": cfg["price"],
                                     "Napęd": ht, "Paliwo": _FUEL_NAMES[cfg.get("fuel", 0)],
                                     "Miasto (l)": cfg["city_l"], "Trasa (l)": cfg["hwy_l"],
@@ -3730,7 +3721,7 @@ with opt_tab_c:
                                     "Bat (kWh)": cfg.get("bat", 0), "Elec%": cfg.get("elec_pct", 0.0)})
         for name, cfg in _bev_src.get(_seg, {}).items():
             if name not in _used_models:
-                _fleet_rows.append({"Segment": _seg_short, "Model": name, "Ilość": 1,
+                _fleet_rows.append({"Segment": _seg_short, "Model": name, "Liczba": 1,
                                     "Cena (zł)": cfg["price"],
                                     "Napęd": "BEV", "Paliwo": "—",
                                     "Miasto (l)": 0.0, "Trasa (l)": 0.0,
@@ -3743,8 +3734,8 @@ with opt_tab_c:
         default_cars,
         column_config={
             "Segment": st.column_config.TextColumn(help="Segment rynkowy (A-E)", width="small"),
-            "Ilość": st.column_config.NumberColumn(
-                help="Ilość pojazdów do zakupu", min_value=0, max_value=500, step=1, default=1),
+            "Liczba": st.column_config.NumberColumn(
+                help="Liczba pojazdów do zakupu", min_value=0, max_value=500, step=1, default=1),
             "Napęd": st.column_config.SelectboxColumn(options=["ICE", "HEV", "PHEV", "BEV"]),
             "Paliwo": st.column_config.SelectboxColumn(
                 options=["PB95", "ON", "LPG", "—"], help="Paliwo: PB95/ON/LPG (ICE/HYB), — (BEV)", width="small"),
@@ -3771,7 +3762,7 @@ with opt_tab_c:
     if st.button("Porównaj flotę (HiGHS)", key="btn_portfolio"):
         valid_cars = edited_cars.dropna(subset=["Model", "Cena (zł)", "Napęd"])
         # Filter out qty=0 rows
-        valid_cars = valid_cars[valid_cars.get("Ilość", pd.Series([1] * len(valid_cars))).fillna(1).astype(int) > 0]
+        valid_cars = valid_cars[valid_cars.get("Liczba", pd.Series([1] * len(valid_cars))).fillna(1).astype(int) > 0]
         if len(valid_cars) < 2:
             st.warning("Dodaj co najmniej 2 pojazdy do porównania.")
         else:
@@ -3782,7 +3773,7 @@ with opt_tab_c:
                 etype = car["Napęd"]
                 _car_bat = car.get("Bat (kWh)", 60) or 60
                 _car_elec = car.get("Elec%", 0) or 0
-                _car_qty = int(car.get("Ilość", 1) or 1)
+                _car_qty = int(car.get("Liczba", 1) or 1)
                 _car_fuel_str = str(car.get("Paliwo", "PB95") or "PB95")
                 _car_fti = {"PB95": 0, "ON": 1, "LPG": 2}.get(_car_fuel_str, 0)
                 _car_pb95 = fuel_data["pb95"] if _car_fti == 2 else 0
@@ -3830,7 +3821,7 @@ with opt_tab_c:
                 results.append({
                     "Segment": car.get("Segment", "—") or "—",
                     "Model": car["Model"], "Napęd": etype,
-                    "Ilość": _car_qty,
+                    "Liczba": _car_qty,
                     "Cena": car["Cena (zł)"], **r,
                 })
                 progress.progress((idx + 1) / len(valid_cars),
@@ -3840,9 +3831,9 @@ with opt_tab_c:
             df_p = pd.DataFrame(results).sort_values("tco")
 
             # Fleet totals
-            df_p["fleet_tco"] = df_p["tco"] * df_p["Ilość"]
-            df_p["fleet_cena"] = df_p["Cena"] * df_p["Ilość"]
-            fleet_count = int(df_p["Ilość"].sum())
+            df_p["fleet_tco"] = df_p["tco"] * df_p["Liczba"]
+            df_p["fleet_cena"] = df_p["Cena"] * df_p["Liczba"]
+            fleet_count = int(df_p["Liczba"].sum())
             fleet_total = df_p["fleet_tco"].sum()
             fleet_purchase = df_p["fleet_cena"].sum()
 
@@ -3871,7 +3862,7 @@ with opt_tab_c:
 
             # Fleet cost by drive type
             by_drive = df_p.groupby("Napęd").agg(
-                szt=("Ilość", "sum"), koszt=("fleet_tco", "sum")).reset_index()
+                szt=("Liczba", "sum"), koszt=("fleet_tco", "sum")).reset_index()
             if len(by_drive) > 1:
                 cheapest = by_drive.loc[by_drive["koszt"].idxmin()]
                 st.info(
@@ -3881,7 +3872,7 @@ with opt_tab_c:
 
             # Bar chart — per unit TCO ranking
             fig_p = go.Figure()
-            _labels = df_p["Model"] + " (" + df_p["Napęd"] + ") ×" + df_p["Ilość"].astype(str)
+            _labels = df_p["Model"] + " (" + df_p["Napęd"] + ") ×" + df_p["Liczba"].astype(str)
             fig_p.add_trace(go.Bar(
                 x=_labels,
                 y=df_p["tco"],
@@ -3906,7 +3897,7 @@ with opt_tab_c:
                     textposition="outside",
                 ))
                 fig_fleet.update_layout(
-                    title=f"Koszt floty (ilość × TCO) – łącznie {fleet_total:,.0f} zł",
+                    title=f"Koszt floty (liczba × TCO) – łącznie {fleet_total:,.0f} zł",
                     yaxis_title="Fleet TCO (zł)", height=480,
                 )
                 st.plotly_chart(fig_fleet, use_container_width=True)
@@ -3931,7 +3922,7 @@ with opt_tab_c:
             st.plotly_chart(fig_stack, use_container_width=True)
 
             # Detailed table with fleet columns
-            show_p = df_p[["Segment", "Model", "Napęd", "Ilość", "Cena", "tco",
+            show_p = df_p[["Segment", "Model", "Napęd", "Liczba", "Cena", "tco",
                            "fleet_tco", "energy", "maint", "ins", "tax",
                            "per_km", "monthly"]].copy()
             show_p.columns = ["Seg.", "Model", "Napęd", "Szt.", "Cena/szt.", "TCO/szt.",
@@ -4005,7 +3996,7 @@ if st.session_state.get("tco_calculated"):
         pdf.ln(6)
         pdf.set_font("Helvetica", "I", 8)
         pdf.cell(0, 5, f"Wygenerowano: czympojade.pl v{APP_VERSION}", ln=True)
-        pdf_bytes = pdf.output()
+        pdf_bytes = bytes(pdf.output())
         st.download_button(
             "Pobierz raport PDF", pdf_bytes,
             "czympojade_raport.pdf", "application/pdf",
@@ -4081,11 +4072,23 @@ st.divider()
 col_f1, col_f2, col_f3 = st.columns([1, 2, 1])
 with col_f2:
     st.image("logo.png", width=280)
+    _footer_data = ""
+    if HAS_MARKET_DB:
+        try:
+            _freshness = get_data_freshness()
+            if _freshness:
+                _footer_data = (
+                    f'Dane rynkowe: {_freshness["fuel_date"]} · '
+                    f'Ogłoszenia w bazie: {_freshness["listings_count"]:,}<br>'
+                )
+        except Exception:
+            pass
     st.markdown(
         '<div style="text-align: center; color: #666; font-size: 0.85em;">'
+        f'{_footer_data}'
         f'© 2026 <strong>Paweł Mamcarz</strong>. Wszelkie prawa zastrzeżone. v{APP_VERSION}<br>'
-        'Optymalizacja z użyciem <strong><a href="https://highs.dev/" target="_blank">HiGHS</a></strong> (Linear Programming). '
-        'Dane rynkowe 2025/2026, bieżące ceny paliw.<br>'
+        'Optymalizacja z użyciem <strong><a href="https://highs.dev/" target="_blank">HiGHS</a></strong> (Mixed-Integer Linear Programming). '
+        'Dane rynkowe 2025/2026, bieżące ceny paliw z e-petrol.pl.<br>'
         '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
         ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
         ' · +48 535 535 221'

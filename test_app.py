@@ -707,38 +707,70 @@ class TestLPGMaintenance:
 
 
 # ===========================================================================
-# 23. v21 — V8 Presets (easter egg)
+# 23. v21 — Fun Car Presets (ICE, BEV, HYB)
 # ===========================================================================
 
-class TestV8Presets:
-    def test_v8_segment_exists_new(self):
-        """V8 segment istnieje w presetach nowych aut."""
-        assert "V8 🏎️" in app.ICE_PRESETS_NEW
+class TestFunCarPresets:
+    def test_funcar_segment_exists_new(self):
+        """Fun Car segment istnieje w presetach nowych aut (ICE, BEV, HYB)."""
+        assert "Fun Car 🏎️" in app.ICE_PRESETS_NEW
+        assert "Fun Car 🏎️" in app.BEV_PRESETS_NEW
+        assert "Fun Car 🏎️" in app.HYB_PRESETS_NEW
 
-    def test_v8_segment_exists_used(self):
-        """V8 segment istnieje w presetach używanych aut."""
-        assert "V8 🏎️" in app.ICE_PRESETS_USED
+    def test_funcar_segment_exists_used(self):
+        """Fun Car segment istnieje w presetach używanych aut (ICE, BEV, HYB)."""
+        assert "Fun Car 🏎️" in app.ICE_PRESETS_USED
+        assert "Fun Car 🏎️" in app.BEV_PRESETS_USED
+        assert "Fun Car 🏎️" in app.HYB_PRESETS_USED
 
-    def test_v8_new_has_models(self):
-        """V8 nowe auta mają modele."""
-        v8 = app.ICE_PRESETS_NEW["V8 🏎️"]
-        assert len(v8) >= 2
-        for name, cfg in v8.items():
-            assert cfg["city_l"] >= 12  # V8 = duże spalanie
+    def test_funcar_ice_new_has_models(self):
+        """Fun Car ICE nowe auta mają modele z dużym spalaniem."""
+        fc = app.ICE_PRESETS_NEW["Fun Car 🏎️"]
+        assert len(fc) >= 2
+        for name, cfg in fc.items():
+            assert cfg["city_l"] >= 12  # performance = duże spalanie
             assert cfg["price"] >= 200_000
 
-    def test_v8_used_has_lpg_models(self):
-        """V8 używane zawierają modele na LPG."""
-        v8 = app.ICE_PRESETS_USED["V8 🏎️"]
-        lpg_models = [n for n, c in v8.items() if c.get("fuel") == 2]
+    def test_funcar_ice_used_has_lpg_models(self):
+        """Fun Car ICE używane zawierają modele na LPG."""
+        fc = app.ICE_PRESETS_USED["Fun Car 🏎️"]
+        lpg_models = [n for n, c in fc.items() if c.get("fuel") == 2]
         assert len(lpg_models) >= 2  # co najmniej 2 modele LPG
 
-    def test_v8_fuel_field_valid(self):
-        """Pole 'fuel' w V8 presetach: 0=PB95, 1=ON, 2=LPG."""
+    def test_funcar_fuel_field_valid(self):
+        """Pole 'fuel' w Fun Car ICE presetach: 0=PB95, 1=ON, 2=LPG."""
         for presets in [app.ICE_PRESETS_NEW, app.ICE_PRESETS_USED]:
-            if "V8 🏎️" in presets:
-                for name, cfg in presets["V8 🏎️"].items():
+            if "Fun Car 🏎️" in presets:
+                for name, cfg in presets["Fun Car 🏎️"].items():
                     assert cfg["fuel"] in (0, 1, 2)
+
+    def test_funcar_bev_has_models(self):
+        """Fun Car BEV nowe i używane mają modele z dużą baterią."""
+        for presets in [app.BEV_PRESETS_NEW, app.BEV_PRESETS_USED]:
+            fc = presets["Fun Car 🏎️"]
+            assert len(fc) >= 2
+            for name, cfg in fc.items():
+                assert cfg["bat"] >= 70
+                assert cfg["city_kwh"] >= 14.0
+
+    def test_funcar_hyb_all_phev(self):
+        """Fun Car HYB (nowe i używane) to same PHEV — performance hybrydy."""
+        for presets in [app.HYB_PRESETS_NEW, app.HYB_PRESETS_USED]:
+            fc = presets["Fun Car 🏎️"]
+            assert len(fc) >= 2
+            for name, cfg in fc.items():
+                assert cfg["hybrid_type"] == "PHEV"
+                assert cfg["bat"] > 0
+                assert cfg["elec_pct"] > 0
+
+    def test_funcar_has_m3_e93(self):
+        """BMW M3 E93 jest w ICE Fun Car (user's car!)."""
+        ice_new = app.ICE_PRESETS_NEW["Fun Car 🏎️"]
+        ice_used = app.ICE_PRESETS_USED["Fun Car 🏎️"]
+        # Sprawdź w nowych lub używanych
+        all_names = list(ice_new.keys()) + list(ice_used.keys())
+        m3_found = any("M3 E93" in n for n in all_names)
+        assert m3_found, "BMW M3 E93 not found in Fun Car ICE presets"
 
 
 # ===========================================================================
