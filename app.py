@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "0.13.0"
+APP_VERSION = "0.14.1"
 
 import streamlit as st
 import numpy as np
@@ -25,7 +25,7 @@ except ImportError:
 # KONFIGURACJA STRONY
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Czy mi się opłaca auto elektryczne?",
+    page_title="Czym pojadę w 2026 — jakie auto mi się opłaca kupić?",
     page_icon="⚡",
     layout="wide",
 )
@@ -56,7 +56,7 @@ with st.sidebar:
     )
     st.caption(f"© 2026 Paweł Mamcarz. Wszelkie prawa zastrzeżone. v{APP_VERSION}")
 
-st.title("Czy mi się opłaca auto elektryczne?")
+st.title("Czym pojadę w 2026 — jakie auto mi się opłaca kupić?")
 st.caption(
     "Porównanie pełnych kosztów posiadania auta elektrycznego i spalinowego. "
     "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
@@ -743,6 +743,47 @@ def calculate_maintenance_cost(
 
 
 # ---------------------------------------------------------------------------
+# LEASING / FINANSOWANIE
+# ---------------------------------------------------------------------------
+
+def calculate_leasing_params(vehicle_brutto, down_pct=0.10, lease_months=36,
+                              buyout_pct=0.01, annual_rate=0.04):
+    """Oblicz rozbicie leasingu operacyjnego: kapitał, odsetki, wpłata, wykup."""
+    netto = vehicle_brutto / 1.23
+    down_netto = netto * down_pct
+    buyout_netto = netto * buyout_pct
+    financed = netto - down_netto - buyout_netto
+    # PMT formula
+    r = annual_rate / 12
+    if r > 0 and lease_months > 0:
+        monthly_rate = financed * (r * (1 + r) ** lease_months) / ((1 + r) ** lease_months - 1)
+    else:
+        monthly_rate = financed / max(lease_months, 1)
+    total_rates = monthly_rate * lease_months
+    total_interest = max(0, total_rates - financed)
+    total_capital = financed
+    return {
+        "vehicle_netto": netto,
+        "down_netto": down_netto, "down_brutto": down_netto * 1.23,
+        "monthly_rate_netto": monthly_rate,
+        "total_rates_netto": total_rates, "total_rates_brutto": total_rates * 1.23,
+        "total_capital_netto": total_capital,
+        "total_interest_netto": total_interest,
+        "buyout_netto": buyout_netto, "buyout_brutto": buyout_netto * 1.23,
+        "total_cashflow_brutto": (down_netto + total_rates + buyout_netto) * 1.23,
+        "financed_netto": financed,
+        "lease_months": lease_months,
+    }
+
+
+def calculate_buyout_tax(buyout_value, resale_value, years_owned, tax_rate=0.19):
+    """Podatek od sprzedaży auta wykupionego prywatnie (< 6 lat od wykupu)."""
+    if years_owned >= 6 or resale_value <= buyout_value:
+        return 0.0
+    return (resale_value - buyout_value) * tax_rate
+
+
+# ---------------------------------------------------------------------------
 # TARCZA PODATKOWA 2026
 # ---------------------------------------------------------------------------
 
@@ -751,6 +792,7 @@ def calculate_tax_shield(
     annual_fuel_cost: float, insurance_annual: float,
     period_years: int, tax_rate: float = 0.19,
     usage_type: str = "firmowe",  # firmowe / mieszane / prywatne
+    leasing: dict = None,  # dict from calculate_leasing_params() or None for gotówka
 ) -> dict:
     """Szczegółowa tarcza podatkowa 2026 z rozbiciem VAT, KUP, leasingu."""
     limit = 100_000 if engine_type == "ICE" else 225_000
@@ -770,11 +812,8 @@ def calculate_tax_shield(
     else:  # prywatne
         return {"total": 0, "vat_vehicle": 0, "vat_fuel_annual": 0, "vat_ekspl_annual": 0,
                 "kup_annual": 0, "pit_annual": 0, "limit": limit, "kup_pct": 0,
-                "vat_fuel_pct": 0, "vat_vehicle_pct": 0, "breakdown": {}}
-
-    # --- VAT od zakupu pojazdu (jednorazowo) ---
-    price_for_vat = min(vehicle_price, limit)
-    vat_vehicle_total = price_for_vat * 0.23 / 1.23 * vat_vehicle  # VAT zawarty w cenie brutto
+                "vat_fuel_pct": 0, "vat_vehicle_pct": 0, "breakdown": {},
+                "leasing_breakdown": None}
 
     # --- VAT od paliwa / energii (rocznie) ---
     vat_fuel_annual = annual_fuel_cost * 0.23 / 1.23 * vat_fuel
@@ -783,27 +822,84 @@ def calculate_tax_shield(
     est_maint_annual = annual_fuel_cost * 0.3  # przybliżenie serwisu
     vat_ekspl_annual = est_maint_annual * 0.23 / 1.23 * vat_ekspl
 
-    # --- KUP: koszty w podatku dochodowym ---
-    annual_lease_netto = vehicle_price / period_years  # rata leasingowa (uproszczone)
-    lease_in_kup = min(annual_lease_netto, limit / period_years) * kup_pct
     fuel_in_kup = annual_fuel_cost * kup_pct
     insurance_in_kup = insurance_annual * kup_pct
-    kup_annual = lease_in_kup + fuel_in_kup + insurance_in_kup
-    pit_annual = kup_annual * tax_rate
 
-    # --- Suma ---
-    total_vat = vat_vehicle_total + (vat_fuel_annual + vat_ekspl_annual) * period_years
-    total_pit = pit_annual * period_years
-    total = total_vat + total_pit
+    if leasing is not None:
+        # --- LEASING: proporcjonalny limit ---
+        vehicle_netto = leasing["vehicle_netto"]
+        proportion = min(limit, vehicle_netto) / vehicle_netto if vehicle_netto > 0 else 1.0
 
-    breakdown = {
-        "VAT od zakupu (jednorazowo)": vat_vehicle_total,
-        f"VAT od {'energii' if is_bev else 'paliwa'} (rocznie)": vat_fuel_annual,
-        "VAT od eksploatacji (rocznie)": vat_ekspl_annual,
-        "PIT/CIT – KUP rata leasingu (rocznie)": lease_in_kup * tax_rate,
-        f"PIT/CIT – KUP {'energia' if is_bev else 'paliwo'} (rocznie)": fuel_in_kup * tax_rate,
-        "PIT/CIT – KUP ubezpieczenie (rocznie)": insurance_in_kup * tax_rate,
-    }
+        # VAT od rat leasingowych + wpłaty (proporcjonalnie do limitu)
+        vat_base = (leasing["down_netto"] + leasing["total_rates_netto"] + leasing["buyout_netto"])
+        vat_vehicle_total = vat_base * 0.23 * proportion * vat_vehicle
+
+        # KUP: wpłata własna (jednorazowa)
+        down_kup = leasing["down_netto"] * proportion * kup_pct
+        # KUP: raty kapitałowe (limitowane, rozłożone na okres)
+        capital_kup_annual = (leasing["total_capital_netto"] * proportion / period_years) * kup_pct
+        # KUP: odsetki — 100% w KUP, BEZ limitu proporcjonalnego
+        interest_kup_annual = (leasing["total_interest_netto"] / period_years) * kup_pct
+        # KUP: wykup (jednorazowy, limitowany)
+        buyout_kup = leasing["buyout_netto"] * proportion * kup_pct
+
+        lease_in_kup_annual = capital_kup_annual + interest_kup_annual
+        kup_annual = lease_in_kup_annual + fuel_in_kup + insurance_in_kup
+        # Jednorazowe KUP (wpłata + wykup) rozłożone na okres analizy
+        kup_oneoff = (down_kup + buyout_kup) / period_years
+        kup_annual += kup_oneoff
+        pit_annual = kup_annual * tax_rate
+
+        # --- Suma ---
+        total_vat = vat_vehicle_total + (vat_fuel_annual + vat_ekspl_annual) * period_years
+        total_pit = pit_annual * period_years
+        total = total_vat + total_pit
+
+        breakdown = {
+            "VAT od leasingu (wpłata+raty+wykup)": vat_vehicle_total,
+            f"VAT od {'energii' if is_bev else 'paliwa'} (rocznie)": vat_fuel_annual,
+            "VAT od eksploatacji (rocznie)": vat_ekspl_annual,
+            "PIT/CIT – wpłata własna w KUP": down_kup * tax_rate,
+            "PIT/CIT – raty kapitałowe w KUP (rocznie)": capital_kup_annual * tax_rate,
+            "PIT/CIT – odsetki w KUP (rocznie, bez limitu)": interest_kup_annual * tax_rate,
+            "PIT/CIT – wykup w KUP": buyout_kup * tax_rate,
+            f"PIT/CIT – KUP {'energia' if is_bev else 'paliwo'} (rocznie)": fuel_in_kup * tax_rate,
+            "PIT/CIT – KUP ubezpieczenie (rocznie)": insurance_in_kup * tax_rate,
+        }
+
+        leasing_breakdown = {
+            "proportion": proportion,
+            "down_kup": down_kup,
+            "capital_kup_annual": capital_kup_annual,
+            "interest_kup_annual": interest_kup_annual,
+            "buyout_kup": buyout_kup,
+        }
+
+    else:
+        # --- GOTÓWKA: uproszczona amortyzacja ---
+        price_for_vat = min(vehicle_price, limit)
+        vat_vehicle_total = price_for_vat * 0.23 / 1.23 * vat_vehicle
+
+        annual_lease_netto = vehicle_price / period_years  # amortyzacja (uproszczone)
+        lease_in_kup = min(annual_lease_netto, limit / period_years) * kup_pct
+        kup_annual = lease_in_kup + fuel_in_kup + insurance_in_kup
+        pit_annual = kup_annual * tax_rate
+
+        # --- Suma ---
+        total_vat = vat_vehicle_total + (vat_fuel_annual + vat_ekspl_annual) * period_years
+        total_pit = pit_annual * period_years
+        total = total_vat + total_pit
+
+        breakdown = {
+            "VAT od zakupu (jednorazowo)": vat_vehicle_total,
+            f"VAT od {'energii' if is_bev else 'paliwa'} (rocznie)": vat_fuel_annual,
+            "VAT od eksploatacji (rocznie)": vat_ekspl_annual,
+            "PIT/CIT – KUP amortyzacja (rocznie)": lease_in_kup * tax_rate,
+            f"PIT/CIT – KUP {'energia' if is_bev else 'paliwo'} (rocznie)": fuel_in_kup * tax_rate,
+            "PIT/CIT – KUP ubezpieczenie (rocznie)": insurance_in_kup * tax_rate,
+        }
+
+        leasing_breakdown = None
 
     return {
         "total": total,
@@ -817,6 +913,7 @@ def calculate_tax_shield(
         "vat_fuel_pct": vat_fuel,
         "vat_vehicle_pct": vat_vehicle,
         "breakdown": breakdown,
+        "leasing_breakdown": leasing_breakdown,
     }
 
 
@@ -842,7 +939,7 @@ def calculate_tco_quick(
     city_kwh=0, highway_kwh=0, battery_cap=75,
     pv_kwp=0, bess_kwh=0, has_home_charger=True,
     has_dynamic_tariff=True, has_old_pv=False, suc_distance=30,
-    use_tax=True, tax_rate=0.19,
+    use_tax=True, tax_rate=0.19, leasing=None,
 ) -> dict:
     """Szybkie obliczenie TCO dla optymalizatora (HiGHS LP wewnątrz dla BEV)."""
     seg = price_to_segment(vehicle_price)
@@ -861,11 +958,13 @@ def calculate_tco_quick(
     ins = estimate_insurance(vehicle_price, engine_type) * period_years
     tx_data = calculate_tax_shield(vehicle_price, engine_type, fa,
                                    estimate_insurance(vehicle_price, engine_type),
-                                   period_years, tax_rate) if use_tax else None
+                                   period_years, tax_rate,
+                                   leasing=leasing) if use_tax else None
     tx = tx_data["total"] if tx_data else 0
     dep = calculate_depreciation(vehicle_price, seg, period_years, engine_type, is_new)
     rv = vehicle_price - dep  # residual value
-    tco = vehicle_price + et + mt + ins - tx
+    acquisition = leasing["total_cashflow_brutto"] if leasing else vehicle_price
+    tco = acquisition + et + mt + ins - tx
     tco_net = tco - rv  # TCO netto = koszt po odzyskaniu RV
     return {"tco": tco, "tco_net": tco_net, "rv": rv,
             "per_km": tco_net / total_km if total_km > 0 else 0,
@@ -882,16 +981,6 @@ fuel_data = fetch_fuel_prices()
 
 # KROK 1: Dane pojazdu
 st.header("1. Twoje pojazdy")
-
-is_new = st.radio(
-    "Stan pojazdu",
-    ["Nowy", "Używany"],
-    horizontal=True,
-    help=(
-        "Nowe BEV i ICE w tej samej klasie kosztują podobnie. "
-        "Używane ICE są tańsze, ale mają wyższe koszty serwisowe."
-    ),
-) == "Nowy"
 
 # --- Presety popularnych modeli ---
 ICE_PRESETS_NEW = {
@@ -943,13 +1032,15 @@ BEV_PRESETS_USED = {
     "BMW iX1 eDrive20 2023": {"price": 155_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 65},
 }
 
-ice_presets = ICE_PRESETS_NEW if is_new else ICE_PRESETS_USED
-bev_presets = BEV_PRESETS_NEW if is_new else BEV_PRESETS_USED
-
 col_ice, col_bev = st.columns(2)
 
 with col_ice:
     st.subheader("ICE (spalinowe)")
+    is_new_ice = st.radio(
+        "Stan ICE", ["Nowy", "Używany"], horizontal=True, key="is_new_ice",
+        help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
+    ) == "Nowy"
+    ice_presets = ICE_PRESETS_NEW if is_new_ice else ICE_PRESETS_USED
     ice_preset_name = st.selectbox(
         "Popularny model ICE",
         list(ice_presets.keys()),
@@ -961,17 +1052,52 @@ with col_ice:
     ice_model = st.text_input(
         "Marka i model ICE",
         value=ice_preset_name if ice_preset_name != "Własne parametry" else (
-            "Toyota Corolla 2024" if is_new else "Toyota Corolla 2019"),
+            "Toyota Corolla 2024" if is_new_ice else "Toyota Corolla 2019"),
         help="Np. Toyota Corolla 1.8, VW Golf 2.0 TDI, Dacia Duster 1.5 dCi",
     )
-    vehicle_price_ice = st.number_input(
-        "Cena zakupu / leasingu ICE – brutto (zł)",
+    vehicle_value_ice = st.number_input(
+        "Wartość auta ICE – brutto (zł)",
         min_value=5_000, max_value=1_000_000,
         value=ice_p["price"],
         step=5_000,
-        help="Cena brutto (z VAT). Cała analiza TCO opiera się na kwotach brutto – "
-             "realnych wydatkach cashflow. Tarcza podatkowa odlicza VAT i KUP osobno.",
+        help="Cena katalogowa / rynkowa brutto (z VAT).",
     )
+    financing_mode_ice = st.radio(
+        "Forma finansowania ICE",
+        ["Leasing", "Gotówka"],
+        horizontal=True, index=0,
+        help="Leasing: wpłata + raty + wykup. Gotówka: jednorazowy zakup.",
+    )
+    leasing_ice = None
+    if financing_mode_ice == "Leasing":
+        lc1, lc2 = st.columns(2)
+        with lc1:
+            down_pct_ice = st.slider(
+                "Wpłata własna ICE (%)", 0, 50, 10,
+                help="Typowo 0-30% wartości auta.",
+            ) / 100.0
+            lease_months_ice = st.selectbox(
+                "Okres leasingu ICE (mies.)", [24, 36, 48, 60], index=1,
+            )
+        with lc2:
+            buyout_pct_ice = st.slider(
+                "Wykup ICE (%)", 0, 30, 1,
+                help="Wartość wykupu jako % wartości auta. 1% = symboliczny wykup.",
+            ) / 100.0
+        leasing_ice = calculate_leasing_params(
+            vehicle_value_ice, down_pct_ice, lease_months_ice, buyout_pct_ice,
+        )
+        st.caption(
+            f"Rata netto: **{leasing_ice['monthly_rate_netto']:,.0f} zł** | "
+            f"Suma wpłat brutto: {leasing_ice['total_cashflow_brutto']:,.0f} zł | "
+            f"Odsetki: {leasing_ice['total_interest_netto']:,.0f} zł netto | "
+            f"Wykup: {leasing_ice['buyout_brutto']:,.0f} zł brutto"
+        )
+        total_acquisition_ice = leasing_ice["total_cashflow_brutto"]
+    else:
+        total_acquisition_ice = vehicle_value_ice
+    # Backward compat alias
+    vehicle_price_ice = vehicle_value_ice
     fuel_type = st.selectbox(
         "Rodzaj paliwa",
         ["Benzyna (PB95)", "Diesel (ON)", "LPG"],
@@ -980,6 +1106,11 @@ with col_ice:
 
 with col_bev:
     st.subheader("BEV (elektryczne)")
+    is_new_bev = st.radio(
+        "Stan BEV", ["Nowy", "Używany"], horizontal=True, key="is_new_bev",
+        help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
+    ) == "Nowy"
+    bev_presets = BEV_PRESETS_NEW if is_new_bev else BEV_PRESETS_USED
     bev_preset_name = st.selectbox(
         "Popularny model BEV",
         list(bev_presets.keys()),
@@ -991,21 +1122,56 @@ with col_bev:
     bev_model = st.text_input(
         "Marka i model BEV",
         value=bev_preset_name if bev_preset_name != "Własne parametry" else (
-            "Tesla Model Y LR 2024" if is_new else "Tesla Model 3 SR+ 2021"),
+            "Tesla Model Y LR 2024" if is_new_bev else "Tesla Model 3 SR+ 2021"),
         help="Np. Tesla Model Y LR, BYD Atto 3, Hyundai Ioniq 5",
     )
-    vehicle_price_bev = st.number_input(
-        "Cena zakupu / leasingu BEV – brutto (zł)",
+    vehicle_value_bev = st.number_input(
+        "Wartość auta BEV – brutto (zł)",
         min_value=5_000, max_value=1_000_000,
         value=bev_p["price"],
         step=5_000,
-        help="Cena brutto (z VAT). Cała analiza TCO opiera się na kwotach brutto – "
-             "realnych wydatkach cashflow. Tarcza podatkowa odlicza VAT i KUP osobno.",
+        help="Cena katalogowa / rynkowa brutto (z VAT).",
     )
+    financing_mode_bev = st.radio(
+        "Forma finansowania BEV",
+        ["Leasing", "Gotówka"],
+        horizontal=True, index=0,
+        help="Leasing: wpłata + raty + wykup. Gotówka: jednorazowy zakup.",
+    )
+    leasing_bev = None
+    if financing_mode_bev == "Leasing":
+        lc1b, lc2b = st.columns(2)
+        with lc1b:
+            down_pct_bev = st.slider(
+                "Wpłata własna BEV (%)", 0, 50, 10,
+                help="Typowo 0-30% wartości auta.",
+            ) / 100.0
+            lease_months_bev = st.selectbox(
+                "Okres leasingu BEV (mies.)", [24, 36, 48, 60], index=1,
+            )
+        with lc2b:
+            buyout_pct_bev = st.slider(
+                "Wykup BEV (%)", 0, 30, 1,
+                help="Wartość wykupu jako % wartości auta. 1% = symboliczny wykup.",
+            ) / 100.0
+        leasing_bev = calculate_leasing_params(
+            vehicle_value_bev, down_pct_bev, lease_months_bev, buyout_pct_bev,
+        )
+        st.caption(
+            f"Rata netto: **{leasing_bev['monthly_rate_netto']:,.0f} zł** | "
+            f"Suma wpłat brutto: {leasing_bev['total_cashflow_brutto']:,.0f} zł | "
+            f"Odsetki: {leasing_bev['total_interest_netto']:,.0f} zł netto | "
+            f"Wykup: {leasing_bev['buyout_brutto']:,.0f} zł brutto"
+        )
+        total_acquisition_bev = leasing_bev["total_cashflow_brutto"]
+    else:
+        total_acquisition_bev = vehicle_value_bev
+    # Backward compat alias
+    vehicle_price_bev = vehicle_value_bev
 
 # Auto-detect segments for maintenance calculations
-segment_idx_ice = price_to_segment(vehicle_price_ice)
-segment_idx_bev = price_to_segment(vehicle_price_bev)
+segment_idx_ice = price_to_segment(vehicle_value_ice)
+segment_idx_bev = price_to_segment(vehicle_value_bev)
 
 with st.expander("Kontekst rynkowy i segment serwisowy"):
     st.write(f"**ICE** ({vehicle_price_ice:,.0f} zł) → {SEGMENT_LABELS[segment_idx_ice]}")
@@ -1050,7 +1216,15 @@ with col1:
     annual_mileage = st.number_input(
         "Roczny przebieg (km)", min_value=5000, max_value=200_000, value=30_000, step=5000
     )
-    period_years = st.slider("Okres analizy (lata)", 1, 10, 3)
+    # Domyślny okres = max okres leasingu (jeśli aktywny)
+    _default_period = 3
+    if leasing_ice is not None or leasing_bev is not None:
+        _lm = max(
+            leasing_ice["lease_months"] if leasing_ice else 0,
+            leasing_bev["lease_months"] if leasing_bev else 0,
+        )
+        _default_period = max(1, min(10, -(-_lm // 12)))  # ceil division, clamp 1-10
+    period_years = st.slider("Okres analizy (lata)", 1, 10, _default_period)
 with col2:
     city_pct = st.slider(
         "Udział jazdy miejskiej (%)", 0, 100, 60,
@@ -1307,9 +1481,9 @@ if st.session_state.get("tco_calculated", False):
     nominal_ice_liters = annual_mileage / 100 * nominal_ice_l
     ice_temp_penalty_pct = (ice_liters_annual / nominal_ice_liters - 1) * 100 if nominal_ice_liters > 0 else 0
 
-    maint_ice_data = calculate_maintenance_cost(segment_idx_ice, total_mileage, "ICE", is_new)
+    maint_ice_data = calculate_maintenance_cost(segment_idx_ice, total_mileage, "ICE", is_new_ice)
     maint_ice = maint_ice_data["total"]
-    depreciation_ice = calculate_depreciation(vehicle_price_ice, segment_idx_ice, period_years, "ICE", is_new)
+    depreciation_ice = calculate_depreciation(vehicle_price_ice, segment_idx_ice, period_years, "ICE", is_new_ice)
     insurance_ice = estimate_insurance(vehicle_price_ice, "ICE") * period_years
 
     tax_shield_ice = 0.0
@@ -1318,13 +1492,17 @@ if st.session_state.get("tco_calculated", False):
         tax_data_ice = calculate_tax_shield(
             vehicle_price_ice, "ICE", fuel_cost_annual,
             estimate_insurance(vehicle_price_ice, "ICE"), period_years, tax_rate,
-            usage_type=usage_type,
+            usage_type=usage_type, leasing=leasing_ice,
         )
         tax_shield_ice = tax_data_ice["total"]
 
-    tco_ice = vehicle_price_ice + fuel_cost_total + maint_ice + insurance_ice - tax_shield_ice
-    rv_ice = vehicle_price_ice - depreciation_ice  # wartość rezydualna
-    tco_net_ice = tco_ice - rv_ice  # TCO netto (po odzyskaniu RV)
+    tco_ice = total_acquisition_ice + fuel_cost_total + maint_ice + insurance_ice - tax_shield_ice
+    rv_ice = vehicle_value_ice - depreciation_ice  # wartość rezydualna (wg wartości auta)
+    buyout_tax_ice = 0.0
+    if leasing_ice and usage_type == "prywatne":
+        buyout_tax_ice = calculate_buyout_tax(
+            leasing_ice["buyout_brutto"], rv_ice, period_years, tax_rate)
+    tco_net_ice = tco_ice - rv_ice + buyout_tax_ice
     cost_per_km_ice = tco_net_ice / total_mileage if total_mileage > 0 else 0
 
     # --- BEV ---
@@ -1354,9 +1532,9 @@ if st.session_state.get("tco_calculated", False):
     energy_cost_annual = charging_result["total_cost"]
     energy_cost_total = energy_cost_annual * period_years
 
-    maint_bev_data = calculate_maintenance_cost(segment_idx_bev, total_mileage, "BEV", is_new, brand=bev_model)
+    maint_bev_data = calculate_maintenance_cost(segment_idx_bev, total_mileage, "BEV", is_new_bev, brand=bev_model)
     maint_bev = maint_bev_data["total"]
-    depreciation_bev = calculate_depreciation(vehicle_price_bev, segment_idx_bev, period_years, "BEV", is_new)
+    depreciation_bev = calculate_depreciation(vehicle_price_bev, segment_idx_bev, period_years, "BEV", is_new_bev)
     insurance_bev = estimate_insurance(vehicle_price_bev, "BEV") * period_years
 
     tax_shield_bev = 0.0
@@ -1365,13 +1543,17 @@ if st.session_state.get("tco_calculated", False):
         tax_data_bev = calculate_tax_shield(
             vehicle_price_bev, "BEV", energy_cost_annual,
             estimate_insurance(vehicle_price_bev, "BEV"), period_years, tax_rate,
-            usage_type=usage_type,
+            usage_type=usage_type, leasing=leasing_bev,
         )
         tax_shield_bev = tax_data_bev["total"]
 
-    tco_bev = vehicle_price_bev + energy_cost_total + maint_bev + insurance_bev - tax_shield_bev
-    rv_bev = vehicle_price_bev - depreciation_bev  # wartość rezydualna
-    tco_net_bev = tco_bev - rv_bev  # TCO netto (po odzyskaniu RV)
+    tco_bev = total_acquisition_bev + energy_cost_total + maint_bev + insurance_bev - tax_shield_bev
+    rv_bev = vehicle_value_bev - depreciation_bev  # wartość rezydualna (wg wartości auta)
+    buyout_tax_bev = 0.0
+    if leasing_bev and usage_type == "prywatne":
+        buyout_tax_bev = calculate_buyout_tax(
+            leasing_bev["buyout_brutto"], rv_bev, period_years, tax_rate)
+    tco_net_bev = tco_bev - rv_bev + buyout_tax_bev
     cost_per_km_bev = tco_net_bev / total_mileage if total_mileage > 0 else 0
 
     # ===================================================================
@@ -1385,7 +1567,7 @@ if st.session_state.get("tco_calculated", False):
     )
 
     # SMART ALERT
-    is_cheap_ice = vehicle_price_ice <= 35_000 and not is_new
+    is_cheap_ice = vehicle_price_ice <= 35_000 and not is_new_ice
     is_trap = is_cheap_ice and annual_mileage >= 25_000 and tco_ice > tco_bev * 0.85
     if is_trap:
         st.error(
@@ -1463,11 +1645,11 @@ if st.session_state.get("tco_calculated", False):
                 delta_color="normal" if diff > 0 else "inverse",
             )
 
-        categories = ["Zakup", "Paliwo / Prąd", "Serwis", "Ubezpieczenie",
+        categories = ["Finansowanie", "Paliwo / Prąd", "Serwis", "Ubezpieczenie",
                        "Tarcza podatkowa", "Wart. rezydualna (RV)", "TCO brutto", "TCO NETTO"]
-        ice_vals = [vehicle_price_ice, fuel_cost_total, maint_ice, insurance_ice,
+        ice_vals = [total_acquisition_ice, fuel_cost_total, maint_ice, insurance_ice,
                     -tax_shield_ice, -rv_ice, tco_ice, tco_net_ice]
-        bev_vals = [vehicle_price_bev, energy_cost_total, maint_bev, insurance_bev,
+        bev_vals = [total_acquisition_bev, energy_cost_total, maint_bev, insurance_bev,
                     -tax_shield_bev, -rv_bev, tco_bev, tco_net_bev]
 
         fig_bar = go.Figure()
@@ -1487,8 +1669,8 @@ if st.session_state.get("tco_calculated", False):
         ice_cum, bev_cum = [], []
         for mo in months_range:
             frac = mo / (period_years * 12)
-            ice_cum.append(vehicle_price_ice + (fuel_cost_total + maint_ice + insurance_ice) * frac - tax_shield_ice * frac)
-            bev_cum.append(vehicle_price_bev + (energy_cost_total + maint_bev + insurance_bev) * frac - tax_shield_bev * frac)
+            ice_cum.append(total_acquisition_ice + (fuel_cost_total + maint_ice + insurance_ice) * frac - tax_shield_ice * frac)
+            bev_cum.append(total_acquisition_bev + (energy_cost_total + maint_bev + insurance_bev) * frac - tax_shield_bev * frac)
 
         fig_line = go.Figure()
         fig_line.add_trace(go.Scatter(
@@ -1672,61 +1854,115 @@ if st.session_state.get("tco_calculated", False):
         avg_bev_real = annual_energy_demand / annual_mileage * 100 if annual_mileage > 0 else 0
         avg_ice_real = ice_liters_annual / annual_mileage * 100 if annual_mileage > 0 else 0
 
+        # Build detail rows
+        detail_cats = [
+            "Pojazd",
+            "Stan",
+            "Forma finansowania",
+            "Wartość auta (brutto)",
+            "Finansowanie – suma wpłat (brutto)",
+        ]
+        ice_detail = [
+            ice_model,
+            "Nowy" if is_new_ice else "Używany",
+            financing_mode_ice,
+            f"{vehicle_value_ice:,.0f} zł",
+            f"{total_acquisition_ice:,.0f} zł",
+        ]
+        bev_detail = [
+            bev_model,
+            "Nowy" if is_new_bev else "Używany",
+            financing_mode_bev,
+            f"{vehicle_value_bev:,.0f} zł",
+            f"{total_acquisition_bev:,.0f} zł",
+        ]
+
+        # Leasing breakdown rows
+        if leasing_ice or leasing_bev:
+            detail_cats += [
+                "  Wpłata własna (brutto)",
+                "  Raty łącznie (brutto)",
+                "  w tym kapitał (netto)",
+                "  w tym odsetki (netto)",
+                "  Wykup (brutto)",
+                "  Rata miesięczna (netto)",
+            ]
+            for ldata, vals in [(leasing_ice, ice_detail), (leasing_bev, bev_detail)]:
+                if ldata:
+                    vals += [
+                        f"{ldata['down_brutto']:,.0f} zł",
+                        f"{ldata['total_rates_brutto']:,.0f} zł",
+                        f"{ldata['total_capital_netto']:,.0f} zł",
+                        f"{ldata['total_interest_netto']:,.0f} zł",
+                        f"{ldata['buyout_brutto']:,.0f} zł",
+                        f"{ldata['monthly_rate_netto']:,.0f} zł",
+                    ]
+                else:
+                    vals += ["—"] * 6
+
+        detail_cats += [
+            f"Paliwo / Prąd ({period_years} lata)",
+            f"Serwis i naprawy ({period_years} lata)",
+            f"Ubezpieczenie OC+AC ({period_years} lata)",
+            "Utrata wartości (deprecjacja)",
+            "Tarcza podatkowa 2026 (oszczędność)",
+            "TCO brutto (suma wydatków)",
+            "",
+            "Wartość rezydualna (RV) po sprzedaży",
+        ]
+        ice_detail += [
+            f"{fuel_cost_total:,.0f} zł",
+            f"{maint_ice:,.0f} zł",
+            f"{insurance_ice:,.0f} zł",
+            f"{depreciation_ice:,.0f} zł",
+            f"-{tax_shield_ice:,.0f} zł",
+            f"{tco_ice:,.0f} zł",
+            "",
+            f"{rv_ice:,.0f} zł",
+        ]
+        bev_detail += [
+            f"{energy_cost_total:,.0f} zł",
+            f"{maint_bev:,.0f} zł",
+            f"{insurance_bev:,.0f} zł",
+            f"{depreciation_bev:,.0f} zł",
+            f"-{tax_shield_bev:,.0f} zł",
+            f"{tco_bev:,.0f} zł",
+            "",
+            f"{rv_bev:,.0f} zł",
+        ]
+
+        # Buyout tax row if applicable
+        if buyout_tax_ice > 0 or buyout_tax_bev > 0:
+            detail_cats.append("Podatek od sprzedaży (wykup prywatny)")
+            ice_detail.append(f"{buyout_tax_ice:,.0f} zł" if buyout_tax_ice > 0 else "—")
+            bev_detail.append(f"{buyout_tax_bev:,.0f} zł" if buyout_tax_bev > 0 else "—")
+
+        detail_cats += [
+            "TCO NETTO (realny koszt posiadania)",
+            "Koszt / km (netto)",
+            "",
+            "Śr. zużycie (z temp.)",
+            "Narzut temperaturowy",
+        ]
+        ice_detail += [
+            f"{tco_net_ice:,.0f} zł",
+            f"{cost_per_km_ice:.2f} zł",
+            "",
+            f"{avg_ice_real:.1f} l/100km",
+            f"+{ice_temp_penalty_pct:.1f}%",
+        ]
+        bev_detail += [
+            f"{tco_net_bev:,.0f} zł",
+            f"{cost_per_km_bev:.2f} zł",
+            "",
+            f"{avg_bev_real:.1f} kWh/100km",
+            f"+{bev_temp_penalty_pct:.1f}%",
+        ]
+
         df_detail = pd.DataFrame({
-            "Kategoria": [
-                "Pojazd",
-                "Stan",
-                "Cena zakupu / leasingu (brutto)",
-                f"Paliwo / Prąd ({period_years} lata)",
-                f"Serwis i naprawy ({period_years} lata)",
-                f"Ubezpieczenie OC+AC ({period_years} lata)",
-                "Utrata wartości (deprecjacja)",
-                "Tarcza podatkowa 2026 (oszczędność)",
-                "TCO brutto (suma wydatków)",
-                "",
-                "Wartość rezydualna (RV) po sprzedaży",
-                "TCO NETTO (realny koszt posiadania)",
-                "Koszt / km (netto)",
-                "",
-                "Śr. zużycie (z temp.)",
-                "Narzut temperaturowy",
-            ],
-            "ICE": [
-                ice_model,
-                "Nowy" if is_new else "Używany",
-                f"{vehicle_price_ice:,.0f} zł",
-                f"{fuel_cost_total:,.0f} zł",
-                f"{maint_ice:,.0f} zł",
-                f"{insurance_ice:,.0f} zł",
-                f"{depreciation_ice:,.0f} zł",
-                f"-{tax_shield_ice:,.0f} zł",
-                f"{tco_ice:,.0f} zł",
-                "",
-                f"{rv_ice:,.0f} zł",
-                f"{tco_net_ice:,.0f} zł",
-                f"{cost_per_km_ice:.2f} zł",
-                "",
-                f"{avg_ice_real:.1f} l/100km",
-                f"+{ice_temp_penalty_pct:.1f}%",
-            ],
-            "BEV": [
-                bev_model,
-                "Nowy" if is_new else "Używany",
-                f"{vehicle_price_bev:,.0f} zł",
-                f"{energy_cost_total:,.0f} zł",
-                f"{maint_bev:,.0f} zł",
-                f"{insurance_bev:,.0f} zł",
-                f"{depreciation_bev:,.0f} zł",
-                f"-{tax_shield_bev:,.0f} zł",
-                f"{tco_bev:,.0f} zł",
-                "",
-                f"{rv_bev:,.0f} zł",
-                f"{tco_net_bev:,.0f} zł",
-                f"{cost_per_km_bev:.2f} zł",
-                "",
-                f"{avg_bev_real:.1f} kWh/100km",
-                f"+{bev_temp_penalty_pct:.1f}%",
-            ],
+            "Kategoria": detail_cats,
+            "ICE": ice_detail,
+            "BEV": bev_detail,
         })
         # Dodaj wiersze podatkowe jeśli aktywne
         if use_tax_shield and tax_data_ice and tax_data_bev:
@@ -2039,7 +2275,7 @@ if "Doradca" in opt_mode:
     with col_d1:
         budget_monthly = st.number_input(
             "Budżet miesięczny na auto (zł)", 500, 15_000, 3_000, 250, key="adv_budget")
-        has_roof = st.checkbox("Mam dach na PV", True, key="adv_roof")
+        has_roof = st.checkbox("Mogę zamontować panele fotowoltaiczne", True, key="adv_roof")
     with col_d2:
         has_garage = st.checkbox("Mam garaż / wallbox", True, key="adv_garage")
         include_invest = st.checkbox(
@@ -2055,7 +2291,7 @@ if "Doradca" in opt_mode:
         scenarios = []
         # ICE baseline
         r = calculate_tco_quick(
-            vehicle_price_ice, "ICE", is_new, annual_mileage, period_years, city_pct,
+            vehicle_price_ice, "ICE", is_new_ice, annual_mileage, period_years, city_pct,
             fuel_price=fuel_price, city_l=ice_city_l, highway_l=ice_highway_l,
             use_tax=use_tax_shield, tax_rate=tax_rate)
         scenarios.append({"Konfig.": f"ICE: {ice_model}", "PV": 0, "BESS": 0,
@@ -2073,7 +2309,7 @@ if "Doradca" in opt_mode:
             for bess in bess_opts:
                 for dyn, tname in tariff_opts:
                     r = calculate_tco_quick(
-                        vehicle_price_bev, "BEV", is_new, annual_mileage,
+                        vehicle_price_bev, "BEV", is_new_bev, annual_mileage,
                         period_years, city_pct,
                         city_kwh=bev_city_kwh, highway_kwh=bev_highway_kwh,
                         battery_cap=battery_capacity, pv_kwp=pv, bess_kwh=bess,
@@ -2154,9 +2390,9 @@ elif "Punkt zwrotny" in opt_mode:
         with st.spinner("Optymalizacja HiGHS (referencyjne ładowanie BEV)..."):
             mkm_ref = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
             maint_ice_rate = calculate_maintenance_cost(
-                segment_idx_ice, 100_000, "ICE", is_new)["per_km"]
+                segment_idx_ice, 100_000, "ICE", is_new_ice)["per_km"]
             maint_bev_rate = calculate_maintenance_cost(
-                segment_idx_bev, 100_000, "BEV", is_new, brand=bev_model)["per_km"]
+                segment_idx_bev, 100_000, "BEV", is_new_bev, brand=bev_model)["per_km"]
 
             dem_ref, _ = calc_annual_consumption_bev(
                 bev_city_kwh, bev_highway_kwh, city_pct, mkm_ref)
@@ -2311,7 +2547,7 @@ else:
                 etype = car["Napęd"]
                 if etype == "ICE":
                     r = calculate_tco_quick(
-                        car["Cena (zł)"], "ICE", is_new, annual_mileage,
+                        car["Cena (zł)"], "ICE", is_new_ice, annual_mileage,
                         period_years, city_pct,
                         fuel_price=fuel_price,
                         city_l=car["Miasto (/100km)"],
@@ -2319,7 +2555,7 @@ else:
                         use_tax=use_tax_shield, tax_rate=tax_rate)
                 else:
                     r = calculate_tco_quick(
-                        car["Cena (zł)"], "BEV", is_new, annual_mileage,
+                        car["Cena (zł)"], "BEV", is_new_bev, annual_mileage,
                         period_years, city_pct,
                         city_kwh=car["Miasto (/100km)"],
                         highway_kwh=car["Trasa (/100km)"],

@@ -345,6 +345,30 @@ class TestTaxShield:
         mixed = app.calculate_tax_shield(200_000, "ICE", 15_000, 4_000, 3, 0.19, "mieszane")
         assert 0 < mixed["total"] < firm["total"]
 
+    def test_leasing_mode(self):
+        leasing = app.calculate_leasing_params(200_000, 0.10, 36, 0.01)
+        shield = app.calculate_tax_shield(
+            200_000, "ICE", 15_000, 4_000, 3, 0.19, "firmowe", leasing=leasing)
+        assert shield["total"] > 0
+        assert shield["leasing_breakdown"] is not None
+        assert shield["leasing_breakdown"]["proportion"] <= 1.0
+
+    def test_leasing_interest_not_limited(self):
+        """Odsetki leasingowe powinny być 100% w KUP — bez limitu proporcjonalnego."""
+        leasing = app.calculate_leasing_params(300_000, 0.10, 36, 0.01)
+        shield = app.calculate_tax_shield(
+            300_000, "ICE", 15_000, 4_000, 3, 0.19, "firmowe", leasing=leasing)
+        lb = shield["leasing_breakdown"]
+        # Proportion < 1 bo 300k > limit ICE 100k
+        assert lb["proportion"] < 1.0
+        # Odsetki roczne w KUP = total_interest / period_years * kup_pct (bez proportion)
+        expected_interest_kup = leasing["total_interest_netto"] / 3 * 1.0
+        assert abs(lb["interest_kup_annual"] - expected_interest_kup) < 1.0
+
+    def test_gotowka_no_leasing_breakdown(self):
+        shield = app.calculate_tax_shield(200_000, "ICE", 15_000, 4_000, 3, 0.19, "firmowe")
+        assert shield["leasing_breakdown"] is None
+
 
 # ===========================================================================
 # 12. Deprecjacja
@@ -394,6 +418,60 @@ class TestConstants:
 
     def test_version(self):
         assert app.APP_VERSION.startswith("0.")
+
+
+# ===========================================================================
+# 15. Leasing — calculate_leasing_params
+# ===========================================================================
+
+class TestLeasingParams:
+    def test_basic(self):
+        result = app.calculate_leasing_params(200_000, 0.10, 36, 0.01)
+        assert result["vehicle_netto"] == pytest.approx(200_000 / 1.23, rel=0.01)
+        assert result["monthly_rate_netto"] > 0
+        assert result["lease_months"] == 36
+
+    def test_zero_down(self):
+        result = app.calculate_leasing_params(200_000, 0.0, 36, 0.01)
+        assert result["down_netto"] == 0
+        assert result["down_brutto"] == 0
+        assert result["monthly_rate_netto"] > 0
+
+    def test_interest_positive(self):
+        result = app.calculate_leasing_params(200_000, 0.10, 36, 0.01, annual_rate=0.06)
+        assert result["total_interest_netto"] > 0
+
+    def test_cashflow_sum(self):
+        """Cashflow brutto = (wpłata + raty + wykup) * 1.23"""
+        result = app.calculate_leasing_params(200_000, 0.10, 36, 0.01)
+        netto_sum = result["down_netto"] + result["total_rates_netto"] + result["buyout_netto"]
+        assert result["total_cashflow_brutto"] == pytest.approx(netto_sum * 1.23, rel=0.01)
+
+    def test_capital_equals_financed(self):
+        result = app.calculate_leasing_params(200_000, 0.10, 36, 0.01)
+        assert result["total_capital_netto"] == pytest.approx(result["financed_netto"], rel=0.01)
+
+
+# ===========================================================================
+# 16. Podatek od wykupu — calculate_buyout_tax
+# ===========================================================================
+
+class TestBuyoutTax:
+    def test_profit_taxed(self):
+        tax = app.calculate_buyout_tax(5_000, 80_000, 3, 0.19)
+        assert tax == pytest.approx((80_000 - 5_000) * 0.19)
+
+    def test_no_profit_no_tax(self):
+        tax = app.calculate_buyout_tax(80_000, 50_000, 3, 0.19)
+        assert tax == 0.0
+
+    def test_6_years_exempt(self):
+        tax = app.calculate_buyout_tax(5_000, 80_000, 6, 0.19)
+        assert tax == 0.0
+
+    def test_7_years_exempt(self):
+        tax = app.calculate_buyout_tax(5_000, 80_000, 7, 0.19)
+        assert tax == 0.0
 
 
 if __name__ == "__main__":
