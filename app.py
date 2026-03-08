@@ -4156,12 +4156,9 @@ with st.expander("Słownik skrótów"):
 # ---------------------------------------------------------------------------
 st.divider()
 
-# Logo — wycentrowane, kompaktowe
-_logo_spacer_l, _logo_center, _logo_spacer_r = st.columns([1, 2, 1])
-with _logo_center:
-    st.image("logo.png", width=200)
+# Cała stopka jako jeden blok HTML — logo (base64) + badge'e + copyright
+import base64 as _b64
 
-# Badge'e + copyright — jeden blok HTML, wycentrowany
 _footer_data = ""
 if HAS_MARKET_DB:
     try:
@@ -4173,16 +4170,27 @@ if HAS_MARKET_DB:
             )
     except Exception:
         pass
+
+try:
+    with open("logo.png", "rb") as _lf:
+        _logo_b64 = _b64.b64encode(_lf.read()).decode()
+    _logo_html = (
+        f'<img src="data:image/png;base64,{_logo_b64}" '
+        'alt="Paweł Mamcarz" '
+        'style="width: 180px; border-radius: 12px; margin-bottom: 10px;">'
+    )
+except Exception:
+    _logo_html = '<p style="font-size:1.2em;"><strong>Paweł Mamcarz</strong></p>'
+
 st.markdown(
-    '<div style="text-align: center; color: #888; font-size: 0.85em; line-height: 1.8;">'
-    '<div style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 12px;">'
+    '<div style="text-align: center; color: #888; font-size: 0.85em; line-height: 1.6; padding: 10px 0;">'
+    f'{_logo_html}<br>'
     '<a href="https://highs.dev/" target="_blank">'
-    '<img src="https://img.shields.io/badge/Powered%20by-HiGHS-blue?style=flat-square" alt="HiGHS">'
-    '</a>'
+    '<img src="https://img.shields.io/badge/Powered%20by-HiGHS-blue?style=flat-square" alt="HiGHS" style="vertical-align: middle;">'
+    '</a> &nbsp; '
     '<a href="https://streamlit.io/" target="_blank">'
-    '<img src="https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white" alt="Streamlit">'
-    '</a>'
-    '</div>'
+    '<img src="https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white" alt="Streamlit" style="vertical-align: middle;">'
+    '</a><br><br>'
     f'{_footer_data}'
     f'© 2026 <strong>Paweł Mamcarz</strong> · v{APP_VERSION}<br>'
     'Dane rynkowe 2025/2026, ceny paliw z e-petrol.pl<br>'
