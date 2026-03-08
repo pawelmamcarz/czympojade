@@ -51,6 +51,12 @@ st.caption(
     "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
     "tarcza podatkowa 2026 i wpływ temperatury na zużycie."
 )
+st.markdown(
+    "[![HiGHS](https://img.shields.io/badge/Powered%20by-HiGHS%20Optimization%20Engine-blue?style=for-the-badge)]"
+    "(https://highs.dev/) "
+    "[![Streamlit](https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)]"
+    "(https://streamlit.io/)"
+)
 
 with st.expander("📊 Infografika — dlaczego musisz policzyć TCO w 2026?", expanded=False):
     try:
@@ -3383,8 +3389,8 @@ with opt_tab_a:
         scenarios.append({"Konfig.": f"🟠 {hyb_type}: {hyb_model}", "PV": 0, "BESS": 0,
                           "Taryfa": "—", "Inwestycja": 0, "napęd": hyb_type, **r_h})
 
-        pv_opts = [0] + ([3, 5, 10] if has_roof else [])
-        bess_opts = [0] + (([0, 20, 30, 50] if has_heat_pump else [10, 30]) if has_garage else [])
+        pv_opts = [0] + ([10, 15, 20] if has_roof else [])
+        bess_opts = [0] + (([20, 30, 50] if has_heat_pump else [20, 30]) if has_garage else [])
         tariff_opts = [(False, "G11"), (True, "Pstryk")] if has_garage else [(False, "G11")]
 
         n_total = len(pv_opts) * len(bess_opts) * len(tariff_opts)
