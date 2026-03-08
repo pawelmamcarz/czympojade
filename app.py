@@ -3533,9 +3533,11 @@ if st.session_state.get("tco_calculated"):
         from fpdf import FPDF
         import unicodedata
         def _strip_pl(text: str) -> str:
-            """Strip Polish diacritics for PDF (Helvetica has no Unicode)."""
+            """Strip Polish diacritics + all non-Latin1 chars for PDF (Helvetica)."""
             _map = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
-            return text.translate(_map)
+            text = text.translate(_map)
+            # Remove any remaining non-latin1 characters (emojis, etc.)
+            return text.encode("latin-1", errors="ignore").decode("latin-1")
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Helvetica", "B", 16)
@@ -3543,6 +3545,7 @@ if st.session_state.get("tco_calculated"):
         pdf.ln(4)
         pdf.set_font("Helvetica", "", 10)
         pdf.cell(0, 7, _strip_pl(f"ICE: {ice_model} ({vehicle_value_ice:,.0f} zl)"), ln=True)
+        pdf.cell(0, 7, _strip_pl(f"HYB: {hyb_model} [{hyb_type}] ({vehicle_value_hyb:,.0f} zl)"), ln=True)
         pdf.cell(0, 7, _strip_pl(f"BEV: {bev_model} ({vehicle_value_bev:,.0f} zl)"), ln=True)
         pdf.cell(0, 7, f"Przebieg: {annual_mileage:,} km/rok | Okres: {period_years} lat", ln=True)
         _pc_d, _pr_d, _ph_d = road_split
@@ -3551,25 +3554,30 @@ if st.session_state.get("tco_calculated"):
         pdf.set_font("Helvetica", "B", 12)
         pdf.cell(0, 8, "Wyniki", ln=True)
         pdf.set_font("Helvetica", "", 10)
-        pdf.cell(0, 7, f"TCO netto ICE: {tco_net_ice:,.0f} zl | BEV: {tco_net_bev:,.0f} zl", ln=True)
-        pdf.cell(0, 7, f"Koszt/km ICE: {cost_per_km_ice:.2f} zl | BEV: {cost_per_km_bev:.2f} zl", ln=True)
-        pdf.cell(0, 7, _strip_pl(f"Roznica: {abs(tco_net_ice - tco_net_bev):,.0f} zl na korzysc {'BEV' if tco_net_bev < tco_net_ice else 'ICE'}"), ln=True)
+        pdf.cell(0, 7, f"TCO netto ICE: {tco_net_ice:,.0f} zl | HYB: {tco_net_hyb:,.0f} zl | BEV: {tco_net_bev:,.0f} zl", ln=True)
+        pdf.cell(0, 7, f"Koszt/km ICE: {cost_per_km_ice:.2f} zl | HYB: {cost_per_km_hyb:.2f} zl | BEV: {cost_per_km_bev:.2f} zl", ln=True)
+        _best = min(tco_net_ice, tco_net_hyb, tco_net_bev)
+        _best_name = "ICE" if _best == tco_net_ice else ("HYB" if _best == tco_net_hyb else "BEV")
+        _worst = max(tco_net_ice, tco_net_hyb, tco_net_bev)
+        pdf.cell(0, 7, _strip_pl(f"Najtanszy: {_best_name} | Roznica max: {_worst - _best:,.0f} zl"), ln=True)
         pdf.ln(4)
         pdf.set_font("Helvetica", "B", 12)
         pdf.cell(0, 8, _strip_pl("Rozbicie kosztow"), ln=True)
         pdf.set_font("Helvetica", "", 9)
         # Table header
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(80, 6, "Kategoria", border=1)
-        pdf.cell(50, 6, "ICE", border=1, align="R")
-        pdf.cell(50, 6, "BEV", border=1, align="R", ln=True)
-        pdf.set_font("Helvetica", "", 9)
-        for cat, iv, bv in zip(detail_cats, ice_detail, bev_detail):
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.cell(62, 6, "Kategoria", border=1)
+        pdf.cell(40, 6, "ICE", border=1, align="R")
+        pdf.cell(40, 6, "HYB", border=1, align="R")
+        pdf.cell(40, 6, "BEV", border=1, align="R", ln=True)
+        pdf.set_font("Helvetica", "", 8)
+        for cat, iv, hv, bv in zip(detail_cats, ice_detail, hyb_detail, bev_detail):
             if cat == "":
                 continue
-            pdf.cell(80, 5, _strip_pl(cat[:40]), border=1)
-            pdf.cell(50, 5, _strip_pl(str(iv)[:25]), border=1, align="R")
-            pdf.cell(50, 5, _strip_pl(str(bv)[:25]), border=1, align="R", ln=True)
+            pdf.cell(62, 5, _strip_pl(cat[:35]), border=1)
+            pdf.cell(40, 5, _strip_pl(str(iv)[:22]), border=1, align="R")
+            pdf.cell(40, 5, _strip_pl(str(hv)[:22]), border=1, align="R")
+            pdf.cell(40, 5, _strip_pl(str(bv)[:22]), border=1, align="R", ln=True)
         pdf.ln(6)
         pdf.set_font("Helvetica", "I", 8)
         pdf.cell(0, 5, f"Wygenerowano: czympojade.pl v{APP_VERSION}", ln=True)
@@ -3584,9 +3592,9 @@ if st.session_state.get("tco_calculated"):
         import io, csv
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(["Kategoria", "ICE", "BEV"])
-        for cat, iv, bv in zip(detail_cats, ice_detail, bev_detail):
-            w.writerow([cat, iv, bv])
+        w.writerow(["Kategoria", "ICE", "HYB", "BEV"])
+        for cat, iv, hv, bv in zip(detail_cats, ice_detail, hyb_detail, bev_detail):
+            w.writerow([cat, iv, hv, bv])
         st.download_button(
             "Pobierz CSV", buf.getvalue(),
             "czympojade_raport.csv", "text/csv",
