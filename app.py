@@ -70,98 +70,6 @@ BEV_BLOCKED_SEGMENTS = {0, 1}
 # TARYFA DYNAMICZNA – symulacja profilu cenowego RDN (PLN/kWh)
 # ---------------------------------------------------------------------------
 
-def generate_dynamic_tariff(hours: int = 8760) -> np.ndarray:
-    """Generuje roczny profil cen energii na Rynku Dnia Następnego (RDN).
-
-    Odzwierciedla typowe polskie wzorce:
-    - Noc (0-5): niskie / ujemne ceny
-    - Rano (6-9): wzrost
-    - Południe (10-14): spadek (nadwyżka PV)
-    - Popołudnie (15-20): szczyt
-    - Wieczór (21-23): spadek
-    """
-    rng = np.random.default_rng(42)
-    prices = np.zeros(hours)
-    for h in range(hours):
-        hour_of_day = h % 24
-        month = (h // 730) % 12  # przybliżenie
-
-        # Bazowy profil dobowy (PLN / kWh netto)
-        if hour_of_day < 5:
-            base = 0.15
-        elif hour_of_day < 6:
-            base = 0.30
-        elif hour_of_day < 10:
-            base = 0.55
-        elif hour_of_day < 14:
-            base = 0.25  # nadwyżka PV
-        elif hour_of_day < 15:
-            base = 0.40
-        elif hour_of_day < 21:
-            base = 0.65  # szczyt
-        elif hour_of_day < 23:
-            base = 0.45
-        else:
-            base = 0.25
-
-        # Sezonowość – zima droższa, lato w południe tańsze
-        if month in (11, 0, 1):  # grudzień-luty
-            base *= 1.3
-        elif month in (5, 6, 7):  # czerwiec-sierpień
-            if 10 <= hour_of_day <= 14:
-                base *= 0.5  # dużo PV -> tanie
-
-        # Szum + szansa na ujemne ceny nocą / w południe
-        noise = rng.normal(0, 0.08)
-        price = base + noise
-
-        # W nocy i w południe latem – szansa na ujemne ceny
-        if hour_of_day < 4 or (month in (5, 6, 7) and 11 <= hour_of_day <= 13):
-            if rng.random() < 0.15:
-                price = rng.uniform(-0.10, -0.01)
-
-        prices[h] = price
-
-    return prices
-
-
-def generate_pv_profile(pv_kwp: float, hours: int = 8760) -> np.ndarray:
-    """Generuje roczny profil produkcji PV (kWh/h)."""
-    if pv_kwp <= 0:
-        return np.zeros(hours)
-
-    production = np.zeros(hours)
-    for h in range(hours):
-        hour_of_day = h % 24
-        day_of_year = (h // 24) % 365
-        month = (h // 730) % 12
-
-        # Brak produkcji w nocy
-        if hour_of_day < 6 or hour_of_day > 20:
-            continue
-
-        # Krzywa słoneczna (przybliżenie Gaussa)
-        solar_peak = 13.0
-        sigma = 3.0
-        solar_factor = np.exp(-0.5 * ((hour_of_day - solar_peak) / sigma) ** 2)
-
-        # Sezonowość – lato 2x więcej niż zima
-        if month in (5, 6, 7):
-            seasonal = 1.0
-        elif month in (4, 8):
-            seasonal = 0.8
-        elif month in (3, 9):
-            seasonal = 0.55
-        elif month in (2, 10):
-            seasonal = 0.35
-        else:
-            seasonal = 0.20
-
-        production[h] = pv_kwp * solar_factor * seasonal * 0.85  # 85% PR
-
-    return production
-
-
 # ---------------------------------------------------------------------------
 # OPTYMALIZACJA ŁADOWANIA BEV – HiGHS LP
 # ---------------------------------------------------------------------------
@@ -178,209 +86,242 @@ def optimize_charging(
 ) -> dict:
     """Optymalizuje roczny harmonogram ładowania BEV za pomocą HiGHS LP.
 
-    Zwraca słownik z kosztami i procentowym udziałem źródeł.
+    Model: 288 slotów (12 miesięcy × 24h reprezentatywnego dnia).
+    Zmienne skalowane przez liczbę dni w miesiącu.
     """
-    HOURS = 8760
-    tariff = generate_dynamic_tariff(HOURS)
-    pv_profile = generate_pv_profile(pv_kwp, HOURS)
+    PRICE_SUC = 1.60
+    PRICE_AC_PUB = 1.95
+    PRICE_BESS_CYCLE = 0.02
+    DIST_FEE = 0.30
 
-    # Ceny źródeł
-    PRICE_PV = 0.0          # darmowa energia z PV
-    PRICE_SUC = 1.60         # Supercharger DC
-    PRICE_AC_PUBLIC = 1.95   # publiczne AC 11 kW
-    PRICE_BESS_CYCLE = 0.02  # koszt cyklu magazynu
+    MONTHS = 12
+    HPD = 24
+    SLOTS = MONTHS * HPD  # 288
+    DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-    # Bez taryfy dynamicznej – stała cena G11
-    if not has_dynamic_tariff:
-        tariff[:] = 0.72  # średnia G11 z dystrybucją
-
-    # Wymagany udział ładowania poza domem (im dalej SUC, im wyższy przebieg)
+    # Podział: dom vs trasa
     if suc_distance_km <= 0:
         suc_distance_km = 1.0
-    road_fraction = np.clip(
-        0.05 + 0.10 * (annual_mileage_km / 50_000) + 0.05 * (suc_distance_km / 50), 0.05, 0.50
+    road_frac = np.clip(
+        0.05 + 0.10 * (annual_mileage_km / 50_000) + 0.05 * (suc_distance_km / 50),
+        0.05, 0.50,
     )
+    road_kwh = annual_demand_kwh * road_frac
+    home_kwh = annual_demand_kwh - road_kwh
 
-    road_demand_kwh = annual_demand_kwh * road_fraction
-    home_demand_kwh = annual_demand_kwh - road_demand_kwh
-
-    # Podział road_demand: 70% SUC, 30% AC publiczne
-    suc_demand = road_demand_kwh * 0.70
-    ac_pub_demand = road_demand_kwh * 0.30
-
-    suc_cost = suc_demand * PRICE_SUC
-    ac_pub_cost = ac_pub_demand * PRICE_AC_PUBLIC
+    suc_kwh = road_kwh * 0.70
+    ac_pub_kwh = road_kwh * 0.30
+    suc_cost = suc_kwh * PRICE_SUC
+    ac_pub_cost = ac_pub_kwh * PRICE_AC_PUB
 
     if not has_home_charger:
-        # Całość na publicznych stacjach
-        total_cost = annual_demand_kwh * 0.6 * PRICE_SUC + annual_demand_kwh * 0.4 * PRICE_AC_PUBLIC
+        total = annual_demand_kwh * 0.6 * PRICE_SUC + annual_demand_kwh * 0.4 * PRICE_AC_PUB
         return {
-            "total_cost": total_cost,
-            "grid_cost": 0,
-            "pv_cost": 0,
-            "bess_cost": 0,
+            "total_cost": total,
+            "grid_cost": 0, "pv_cost": 0, "bess_cost": 0,
             "suc_cost": annual_demand_kwh * 0.6 * PRICE_SUC,
-            "ac_pub_cost": annual_demand_kwh * 0.4 * PRICE_AC_PUBLIC,
-            "pct_grid": 0,
-            "pct_pv": 0,
-            "pct_bess": 0,
-            "pct_suc": 60,
-            "pct_ac_pub": 40,
+            "ac_pub_cost": annual_demand_kwh * 0.4 * PRICE_AC_PUB,
+            "pct_grid": 0, "pct_pv": 0, "pct_bess": 0,
+            "pct_suc": 60, "pct_ac_pub": 40,
             "negative_hours_used": 0,
         }
 
-    # ----- HiGHS LP -----
-    # Zmienne: x_grid[h] – energia z sieci w godzinie h
-    #          x_pv[h]   – energia z PV w godzinie h
-    #          x_bess_charge[h] – ładowanie BESS z sieci
-    #          x_bess_discharge[h] – rozładowanie BESS do auta
+    # ---- Profile cenowe i PV (288 slotów) ----
+    rng = np.random.default_rng(42)
+    tariff = np.zeros(SLOTS)
+    pv_avail = np.zeros(SLOTS)
 
-    h = highspy.Highs()
-    h.silent()
+    for s in range(SLOTS):
+        m = s // HPD
+        hod = s % HPD
 
-    num_vars = HOURS * 4  # grid, pv, bess_charge, bess_discharge
+        # Profil cenowy RDN (PLN/kWh netto)
+        if hod < 5:
+            base = 0.15
+        elif hod < 6:
+            base = 0.30
+        elif hod < 10:
+            base = 0.55
+        elif hod < 14:
+            base = 0.25
+        elif hod < 15:
+            base = 0.40
+        elif hod < 21:
+            base = 0.65
+        elif hod < 23:
+            base = 0.45
+        else:
+            base = 0.25
+
+        if m in (11, 0, 1):
+            base *= 1.3
+        elif m in (5, 6, 7) and 10 <= hod <= 14:
+            base *= 0.5
+
+        noise = rng.normal(0, 0.05)
+        price = base + noise
+
+        if hod < 4 or (m in (5, 6, 7) and 11 <= hod <= 13):
+            if rng.random() < 0.15:
+                price = rng.uniform(-0.10, -0.01)
+
+        if not has_dynamic_tariff:
+            price = 0.42  # stała G11 netto
+
+        tariff[s] = price
+
+        # Produkcja PV
+        if pv_kwp > 0 and 6 <= hod <= 20:
+            solar = np.exp(-0.5 * ((hod - 13.0) / 3.0) ** 2)
+            if m in (5, 6, 7):
+                season = 1.0
+            elif m in (4, 8):
+                season = 0.8
+            elif m in (3, 9):
+                season = 0.55
+            elif m in (2, 10):
+                season = 0.35
+            else:
+                season = 0.20
+            pv_avail[s] = pv_kwp * solar * season * 0.85
+
+    # ---- HiGHS LP ----
+    solver = highspy.Highs()
+    solver.silent()
     INF = highspy.kHighsInf
 
-    # Indeksy zmiennych
-    def idx_grid(t):
-        return t
+    max_ac = 11.0
+    bess_rate = min(5.0, bess_kwh * 0.5) if bess_kwh > 0 else 0.0
 
-    def idx_pv(t):
-        return HOURS + t
+    # 4 zmienne na slot: grid(0), pv(1), bess_ch(2), bess_dis(3)
+    num_vars = SLOTS * 4
+    costs_arr = np.zeros(num_vars)
+    lower_arr = np.zeros(num_vars)
+    upper_arr = np.zeros(num_vars)
 
-    def idx_bess_ch(t):
-        return 2 * HOURS + t
+    for s in range(SLOTS):
+        d = DAYS[s // HPD]
+        b = s * 4
+        full_price = (tariff[s] + DIST_FEE) * d
 
-    def idx_bess_dis(t):
-        return 3 * HOURS + t
+        costs_arr[b] = full_price          # grid
+        upper_arr[b] = max_ac
 
-    # Dodaj zmienne
-    costs = np.zeros(num_vars)
-    lower = np.zeros(num_vars)
-    upper = np.full(num_vars, INF)
+        costs_arr[b + 1] = 0.0             # pv (darmowe)
+        upper_arr[b + 1] = min(pv_avail[s], max_ac)
 
-    max_charge_rate = 11.0  # kW (AC domowa)
+        costs_arr[b + 2] = full_price      # bess charge
+        upper_arr[b + 2] = bess_rate
 
-    for t in range(HOURS):
-        # x_grid – koszt = cena taryfowa + opłaty dystrybucyjne (~0.30 zł/kWh)
-        grid_price = tariff[t] + 0.30
-        costs[idx_grid(t)] = grid_price
-        upper[idx_grid(t)] = max_charge_rate  # max 11 kW/h
+        costs_arr[b + 3] = PRICE_BESS_CYCLE * d  # bess discharge
+        upper_arr[b + 3] = bess_rate
 
-        # x_pv – darmowe
-        costs[idx_pv(t)] = PRICE_PV
-        upper[idx_pv(t)] = min(pv_profile[t], max_charge_rate)
+    # Dodaj zmienne i ustaw koszty
+    solver.addVars(num_vars, lower_arr.tolist(), upper_arr.tolist())
+    for i in range(num_vars):
+        solver.changeColCost(i, float(costs_arr[i]))
+    solver.changeObjectiveSense(highspy.ObjSense.kMinimize)
 
-        # x_bess_charge – koszt taryfowy (ładujemy magazyn z sieci)
-        costs[idx_bess_ch(t)] = grid_price
-        upper[idx_bess_ch(t)] = min(5.0, bess_kwh * 0.5) if bess_kwh > 0 else 0
+    # Ograniczenie 1: popyt dobowy (jedno na miesiąc)
+    daily_home = home_kwh / 365.0
+    for m in range(MONTHS):
+        idx = []
+        vals = []
+        for hod in range(HPD):
+            b = (m * HPD + hod) * 4
+            idx.extend([b, b + 1, b + 3])  # grid + pv + bess_dis
+            vals.extend([1.0, 1.0, 1.0])
+        solver.addRow(daily_home, INF, len(idx), idx, vals)
 
-        # x_bess_discharge – niewielki koszt cyklu
-        costs[idx_bess_dis(t)] = PRICE_BESS_CYCLE
-        upper[idx_bess_dis(t)] = min(5.0, bess_kwh * 0.5) if bess_kwh > 0 else 0
-
-    h.addVars(num_vars, lower.tolist(), upper.tolist())
-
-    # Ustaw funkcję celu (minimalizacja)
-    h.changeColsCostByRange(0, num_vars - 1, costs.tolist())
-    h.changeObjectiveSense(highspy.ObjSense.kMinimize)
-
-    # --- Ograniczenia ---
-
-    # 1. Suma energii z domu pokrywa home_demand
-    # sum(x_grid + x_pv + x_bess_dis) >= home_demand_kwh
-    row_idx = list(range(HOURS)) + list(range(HOURS, 2 * HOURS)) + list(range(3 * HOURS, 4 * HOURS))
-    row_vals = [1.0] * (3 * HOURS)
-    h.addRow(home_demand_kwh, INF, len(row_idx), row_idx, row_vals)
-
-    # 2. Bilans magazynu energii (BESS) – uproszczony:
-    #    sum(bess_discharge) <= sum(bess_charge) * 0.90 (sprawność 90%)
+    # Ograniczenie 2: bilans BESS (roczny)
     if bess_kwh > 0:
-        bess_row_idx = (
-            list(range(3 * HOURS, 4 * HOURS)) + list(range(2 * HOURS, 3 * HOURS))
-        )
-        bess_row_vals = [1.0] * HOURS + [-0.90] * HOURS
-        h.addRow(-INF, 0.0, len(bess_row_idx), bess_row_idx, bess_row_vals)
+        idx = []
+        vals = []
+        for s in range(SLOTS):
+            d = float(DAYS[s // HPD])
+            b = s * 4
+            idx.extend([b + 3, b + 2])
+            vals.extend([d, -0.90 * d])
+        solver.addRow(-INF, 0.0, len(idx), idx, vals)
 
-        # Łączna pojemność BESS
-        bess_cap_idx = list(range(2 * HOURS, 3 * HOURS))
-        bess_cap_vals = [1.0] * HOURS
-        h.addRow(0, bess_kwh * 365, len(bess_cap_idx), bess_cap_idx, bess_cap_vals)
-
-    # 3. PV nie może przekroczyć produkcji w danej godzinie (już w upper bounds)
-    # 4. Łączne ładowanie z sieci nie przekracza pojemności baterii / dobę
-    #    (uproszczenie – per 24h blok)
-    for day in range(365):
-        day_start = day * 24
-        day_end = min(day_start + 24, HOURS)
-        day_indices = list(range(idx_grid(day_start), idx_grid(day_end)))
-        day_vals = [1.0] * len(day_indices)
-        h.addRow(0, battery_cap_kwh, len(day_indices), day_indices, day_vals)
+    # Ograniczenie 3: pojemność baterii EV na dobę
+    for m in range(MONTHS):
+        idx = []
+        vals = []
+        for hod in range(HPD):
+            b = (m * HPD + hod) * 4
+            idx.append(b)
+            vals.append(1.0)
+        solver.addRow(0.0, float(battery_cap_kwh), len(idx), idx, vals)
 
     # Rozwiąż
-    h.run()
+    solver.run()
+    status = solver.getModelStatus()
 
-    status = h.getModelStatus()
     if status != highspy.HighsModelStatus.kOptimal:
-        # Fallback – prosta kalkulacja
-        avg_price = float(np.mean(tariff)) + 0.30
-        grid_cost_fallback = home_demand_kwh * avg_price
+        avg_price = float(np.mean(tariff)) + DIST_FEE
+        fallback = home_kwh * avg_price
+        total_e = home_kwh + suc_kwh + ac_pub_kwh
+        pct = lambda p: 100 * p / total_e if total_e > 0 else 0
         return {
-            "total_cost": grid_cost_fallback + suc_cost + ac_pub_cost,
-            "grid_cost": grid_cost_fallback,
-            "pv_cost": 0,
-            "bess_cost": 0,
-            "suc_cost": suc_cost,
-            "ac_pub_cost": ac_pub_cost,
-            "pct_grid": 100 * home_demand_kwh / annual_demand_kwh,
-            "pct_pv": 0,
-            "pct_bess": 0,
-            "pct_suc": 100 * suc_demand / annual_demand_kwh,
-            "pct_ac_pub": 100 * ac_pub_demand / annual_demand_kwh,
+            "total_cost": fallback + suc_cost + ac_pub_cost,
+            "grid_cost": fallback, "pv_cost": 0, "bess_cost": 0,
+            "suc_cost": suc_cost, "ac_pub_cost": ac_pub_cost,
+            "pct_grid": pct(home_kwh), "pct_pv": 0, "pct_bess": 0,
+            "pct_suc": pct(suc_kwh), "pct_ac_pub": pct(ac_pub_kwh),
             "negative_hours_used": 0,
             "solver_status": str(status),
         }
 
-    sol = h.getSolution()
-    col_values = sol.col_value
+    # Wyciągnij wyniki
+    sol = solver.getSolution()
+    cv = list(sol.col_value)
 
-    # Oblicz wyniki
-    grid_energy = sum(col_values[idx_grid(t)] for t in range(HOURS))
-    pv_energy = sum(col_values[idx_pv(t)] for t in range(HOURS))
-    bess_discharge_energy = sum(col_values[idx_bess_dis(t)] for t in range(HOURS))
+    grid_e = 0.0
+    pv_e = 0.0
+    bess_dis_e = 0.0
+    home_cost = 0.0
+    neg_hours = 0
 
-    grid_cost = sum(col_values[idx_grid(t)] * (tariff[t] + 0.30) for t in range(HOURS))
-    bess_charge_cost = sum(col_values[idx_bess_ch(t)] * (tariff[t] + 0.30) for t in range(HOURS))
-    bess_dis_cost = sum(col_values[idx_bess_dis(t)] * PRICE_BESS_CYCLE for t in range(HOURS))
+    for s in range(SLOTS):
+        d = DAYS[s // HPD]
+        b = s * 4
+        price_full = tariff[s] + DIST_FEE
 
-    # Policz godziny z ujemną ceną, w których ładowano
-    negative_hours = sum(
-        1 for t in range(HOURS)
-        if tariff[t] < 0 and col_values[idx_grid(t)] > 0.01
-    )
+        ge = cv[b] * d
+        pe = cv[b + 1] * d
+        bce = cv[b + 2] * d
+        bde = cv[b + 3] * d
 
-    total_home_energy = grid_energy + pv_energy + bess_discharge_energy
-    total_energy = total_home_energy + suc_demand + ac_pub_demand
+        grid_e += ge
+        pv_e += pe
+        bess_dis_e += bde
 
-    home_cost = grid_cost + bess_charge_cost + bess_dis_cost
+        home_cost += ge * price_full
+        home_cost += bce * price_full
+        home_cost += bde * PRICE_BESS_CYCLE
+
+        if tariff[s] < 0 and cv[b] > 0.01:
+            neg_hours += d
+
+    total_e = grid_e + pv_e + bess_dis_e + suc_kwh + ac_pub_kwh
     total_cost = home_cost + suc_cost + ac_pub_cost
 
-    def safe_pct(part, whole):
-        return 100 * part / whole if whole > 0 else 0
+    pct = lambda p: 100 * p / total_e if total_e > 0 else 0
 
     return {
         "total_cost": total_cost,
         "grid_cost": home_cost,
         "pv_cost": 0,
-        "bess_cost": bess_charge_cost + bess_dis_cost,
+        "bess_cost": 0,
         "suc_cost": suc_cost,
         "ac_pub_cost": ac_pub_cost,
-        "pct_grid": safe_pct(grid_energy, total_energy),
-        "pct_pv": safe_pct(pv_energy, total_energy),
-        "pct_bess": safe_pct(bess_discharge_energy, total_energy),
-        "pct_suc": safe_pct(suc_demand, total_energy),
-        "pct_ac_pub": safe_pct(ac_pub_demand, total_energy),
-        "negative_hours_used": negative_hours,
+        "pct_grid": pct(grid_e),
+        "pct_pv": pct(pv_e),
+        "pct_bess": pct(bess_dis_e),
+        "pct_suc": pct(suc_kwh),
+        "pct_ac_pub": pct(ac_pub_kwh),
+        "negative_hours_used": int(neg_hours),
         "solver_status": "optimal",
     }
 
