@@ -52,13 +52,6 @@ st.caption(
     "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
     "tarcza podatkowa 2026 i wpływ temperatury na zużycie."
 )
-st.markdown(
-    "[![HiGHS](https://img.shields.io/badge/Powered%20by-HiGHS%20Optimization%20Engine-blue?style=for-the-badge)]"
-    "(https://highs.dev/) "
-    "[![Streamlit](https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)]"
-    "(https://streamlit.io/)"
-)
-
 with st.expander("📊 Infografika — dlaczego musisz policzyć TCO w 2026?", expanded=False):
     try:
         st.image("infografika.png", use_container_width=True)
@@ -4115,6 +4108,17 @@ st.divider()
 col_f1, col_f2, col_f3 = st.columns([1, 2, 1])
 with col_f2:
     st.image("logo.png", width=280)
+    st.markdown(
+        '<div style="text-align: center; margin: 8px 0 12px 0;">'
+        '<a href="https://highs.dev/" target="_blank">'
+        '<img src="https://img.shields.io/badge/Powered%20by-HiGHS%20Optimization%20Engine-blue?style=for-the-badge" alt="HiGHS">'
+        '</a> '
+        '<a href="https://streamlit.io/" target="_blank">'
+        '<img src="https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white" alt="Streamlit">'
+        '</a>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     _footer_data = ""
     if HAS_MARKET_DB:
         try:
