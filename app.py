@@ -2692,6 +2692,56 @@ if st.session_state.get("tco_calculated", False):
                 f"{ordered[0][0]} → {ordered[1][0]} → {ordered[2][0]}"
             )
 
+        # --- Profil kierowcy (klaster ML) ---
+        st.divider()
+        st.subheader("🧑‍✈️ Twój profil kierowcy")
+        ml = get_ml_models()
+        user_features = {
+            "annual_mileage": annual_mileage,
+            "city_pct": city_pct,
+            "has_home_charger": int(has_home_charger),
+            "pv_kwp": pv_kwp,
+            "has_heat_pump": int(has_heat_pump),
+            "usage_type": {"firmowe": 0, "mieszane": 1, "prywatne": 2}.get(usage_type, 2),
+        }
+        cl_summary = predict_cluster(ml, user_features)
+
+        _cl_col1, _cl_col2 = st.columns([1, 2])
+        with _cl_col1:
+            st.metric("Klaster", cl_summary["name"])
+            st.metric("Dopasowanie", f"{cl_summary['similarity']:.0f}%")
+            st.caption(cl_summary["desc"])
+        with _cl_col2:
+            _radar_labels = ["Przebieg", "Miasto", "Ładowarka", "PV", "Pompa c.", "Użytkow."]
+            _u_norm = [
+                annual_mileage / 80000, city_pct, int(has_home_charger),
+                pv_kwp / 20, int(has_heat_pump), user_features["usage_type"] / 2,
+            ]
+            _c_norm = [
+                cl_summary["centroid"]["annual_mileage"] / 80000,
+                cl_summary["centroid"]["city_pct"],
+                cl_summary["centroid"]["has_home_charger"],
+                cl_summary["centroid"]["pv_kwp"] / 20,
+                cl_summary["centroid"]["has_heat_pump"],
+                cl_summary["centroid"]["usage_type"] / 2,
+            ]
+            _fig_r = go.Figure()
+            _fig_r.add_trace(go.Scatterpolar(
+                r=_u_norm + [_u_norm[0]], theta=_radar_labels + [_radar_labels[0]],
+                fill="toself", name="Ty",
+                fillcolor="rgba(59, 130, 246, 0.2)", line_color="#3b82f6",
+            ))
+            _fig_r.add_trace(go.Scatterpolar(
+                r=_c_norm + [_c_norm[0]], theta=_radar_labels + [_radar_labels[0]],
+                fill="toself", name=cl_summary["name"],
+                fillcolor="rgba(239, 68, 68, 0.15)", line_color="#ef4444",
+            ))
+            _fig_r.update_layout(
+                polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+                height=320, showlegend=True, margin=dict(t=30, b=30),
+            )
+            st.plotly_chart(_fig_r, use_container_width=True)
+
     with tab2:
         st.subheader("Wpływ temperatury na roczne zużycie")
 
