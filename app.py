@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "0.14.1"
+APP_VERSION = "0.15.0"
 
 import streamlit as st
 import numpy as np
@@ -140,6 +140,11 @@ MONTH_NAMES_PL = ["Sty", "Lut", "Mar", "Kwi", "Maj", "Cze",
 TEMPS_PL = [-2, -1, 3, 8, 14, 17, 19, 18, 14, 9, 4, 0]
 DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
+# Mnożniki prędkościowe: autostrada (130-140 km/h) vs droga krajowa (90 km/h)
+# Wyższe zużycie z powodu oporu aerodynamicznego
+HIGHWAY_SPEED_MULTIPLIER_BEV = 1.18  # +18% BEV na autostradzie vs krajowa
+HIGHWAY_SPEED_MULTIPLIER_ICE = 1.12  # +12% ICE na autostradzie vs krajowa
+
 # ---------------------------------------------------------------------------
 # G14dynamic – opłata dystrybucyjna wg pory dnia (zł/kWh)
 # ---------------------------------------------------------------------------
@@ -259,33 +264,44 @@ def ice_temp_multiplier(temp_c: float, driving_type: str) -> float:
 
 
 def calc_annual_consumption_bev(
-    city_kwh: float, highway_kwh: float, city_pct: float,
+    city_kwh: float, highway_kwh: float, road_split: tuple,
     monthly_km: np.ndarray,
 ) -> tuple[float, np.ndarray]:
-    """Zwraca (roczne kWh, tablica 12 miesięcznych kWh)."""
-    hwy_pct = 1 - city_pct
+    """Zwraca (roczne kWh, tablica 12 miesięcznych kWh).
+
+    road_split: (miasto%, krajowa%, autostrada%) — znormalizowane do 1.0
+    Krajowa używa highway_kwh (WLTP), autostrada dodaje mnożnik prędkościowy.
+    """
+    pct_c, pct_r, pct_h = road_split
     monthly_kwh = np.zeros(12)
     for m in range(12):
         mc = bev_temp_multiplier(TEMPS_PL[m], "city")
         mh = bev_temp_multiplier(TEMPS_PL[m], "highway")
         monthly_kwh[m] = monthly_km[m] / 100 * (
-            city_pct * city_kwh * mc + hwy_pct * highway_kwh * mh
+            pct_c * city_kwh * mc
+            + pct_r * highway_kwh * mh
+            + pct_h * highway_kwh * mh * HIGHWAY_SPEED_MULTIPLIER_BEV
         )
     return float(monthly_kwh.sum()), monthly_kwh
 
 
 def calc_annual_fuel_ice(
-    city_l: float, highway_l: float, city_pct: float,
+    city_l: float, highway_l: float, road_split: tuple,
     monthly_km: np.ndarray, fuel_price: float,
 ) -> tuple[float, float, np.ndarray]:
-    """Zwraca (roczne litry, roczny koszt PLN, tablica 12 miesięcznych litrów)."""
-    hwy_pct = 1 - city_pct
+    """Zwraca (roczne litry, roczny koszt PLN, tablica 12 miesięcznych litrów).
+
+    road_split: (miasto%, krajowa%, autostrada%) — znormalizowane do 1.0
+    """
+    pct_c, pct_r, pct_h = road_split
     monthly_liters = np.zeros(12)
     for m in range(12):
         mc = ice_temp_multiplier(TEMPS_PL[m], "city")
         mh = ice_temp_multiplier(TEMPS_PL[m], "highway")
         monthly_liters[m] = monthly_km[m] / 100 * (
-            city_pct * city_l * mc + hwy_pct * highway_l * mh
+            pct_c * city_l * mc
+            + pct_r * highway_l * mh
+            + pct_h * highway_l * mh * HIGHWAY_SPEED_MULTIPLIER_ICE
         )
     total_liters = float(monthly_liters.sum())
     return total_liters, total_liters * fuel_price, monthly_liters
@@ -417,21 +433,24 @@ def predict_realworld(ml, city_pct, annual_mileage, has_home_charger, pv_kwp):
 
 def forecast_monthly_costs(
     annual_energy_cost: float, fuel_cost_annual: float,
-    bev_city_kwh: float, bev_highway_kwh: float, city_pct: float,
+    bev_city_kwh: float, bev_highway_kwh: float, road_split: tuple,
     ice_city_l: float, ice_highway_l: float, fuel_price: float,
     annual_mileage: float,
 ) -> pd.DataFrame:
+    pct_c, pct_r, pct_h = road_split
     monthly_km = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
     months = MONTH_NAMES_PL
     bev_costs, ice_costs = [], []
+    nominal_bev = pct_c * bev_city_kwh + pct_r * bev_highway_kwh + pct_h * bev_highway_kwh * HIGHWAY_SPEED_MULTIPLIER_BEV
+    nominal_ice = pct_c * ice_city_l + pct_r * ice_highway_l + pct_h * ice_highway_l * HIGHWAY_SPEED_MULTIPLIER_ICE
     for m in range(12):
         t = TEMPS_PL[m]
-        bev_mult = bev_temp_multiplier(t, "city") * city_pct + bev_temp_multiplier(t, "highway") * (1 - city_pct)
-        ice_mult = ice_temp_multiplier(t, "city") * city_pct + ice_temp_multiplier(t, "highway") * (1 - city_pct)
-        bev_base = monthly_km[m] / 100 * (city_pct * bev_city_kwh + (1 - city_pct) * bev_highway_kwh)
+        bev_mult = bev_temp_multiplier(t, "city") * pct_c + bev_temp_multiplier(t, "highway") * (pct_r + pct_h)
+        ice_mult = ice_temp_multiplier(t, "city") * pct_c + ice_temp_multiplier(t, "highway") * (pct_r + pct_h)
+        bev_base = monthly_km[m] / 100 * nominal_bev
         bev_real = bev_base * bev_mult
-        bev_cost = bev_real / (annual_mileage / 100 * (city_pct * bev_city_kwh + (1 - city_pct) * bev_highway_kwh)) * annual_energy_cost if annual_energy_cost > 0 else 0
-        ice_liters = monthly_km[m] / 100 * (city_pct * ice_city_l + (1 - city_pct) * ice_highway_l) * ice_mult
+        bev_cost = bev_real / (annual_mileage / 100 * nominal_bev) * annual_energy_cost if annual_energy_cost > 0 else 0
+        ice_liters = monthly_km[m] / 100 * nominal_ice * ice_mult
         ice_cost = ice_liters * fuel_price
         bev_costs.append(round(bev_cost, 0))
         ice_costs.append(round(ice_cost, 0))
@@ -917,16 +936,57 @@ def calculate_tax_shield(
     }
 
 
+# ---------------------------------------------------------------------------
+# KRZYWE DEPRECJACJI – wartość rezydualna jako % ceny po N latach
+# Kalibracja: dane AAA AUTO / autoDNA 2025, raporty DAT/Schwacke
+# BEV: próg roku 8 = koniec gwarancji baterii HV → ostrzejszy spadek
+# ---------------------------------------------------------------------------
+DEPRECIATION_CURVE_NEW_ICE = {
+    1: 0.78, 2: 0.65, 3: 0.55, 4: 0.47, 5: 0.40,
+    6: 0.35, 7: 0.30, 8: 0.26, 9: 0.23, 10: 0.20,
+}
+DEPRECIATION_CURVE_NEW_BEV = {
+    1: 0.82, 2: 0.70, 3: 0.62, 4: 0.55, 5: 0.48,
+    6: 0.42, 7: 0.37, 8: 0.30, 9: 0.24, 10: 0.19,
+}
+DEPRECIATION_CURVE_USED_ICE = {
+    1: 0.88, 2: 0.78, 3: 0.70, 4: 0.63, 5: 0.57,
+    6: 0.52, 7: 0.47, 8: 0.43, 9: 0.39, 10: 0.36,
+}
+DEPRECIATION_CURVE_USED_BEV = {
+    1: 0.87, 2: 0.76, 3: 0.67, 4: 0.59, 5: 0.52,
+    6: 0.46, 7: 0.40, 8: 0.32, 9: 0.26, 10: 0.21,
+}
+
+
 def calculate_depreciation(vehicle_price, segment_idx, period_years, engine_type, is_new):
+    """Deprecjacja nieliniowa z krzywą piecewise per rok.
+
+    BEV ma ostrzejszy spadek w roku 8 (koniec gwarancji baterii HV).
+    Interpolacja liniowa dla wartości niecałkowitych i > 10 lat.
+    """
     if is_new:
-        # Nowe auta tracą więcej w pierwszych latach
-        rate = 0.15 if engine_type == "ICE" else 0.12
+        curve = DEPRECIATION_CURVE_NEW_BEV if engine_type == "BEV" else DEPRECIATION_CURVE_NEW_ICE
     else:
-        if engine_type == "ICE":
-            rate = 0.15 if segment_idx <= 1 else (0.12 if segment_idx <= 4 else 0.10)
+        curve = DEPRECIATION_CURVE_USED_BEV if engine_type == "BEV" else DEPRECIATION_CURVE_USED_ICE
+
+    years = min(period_years, 10)
+    if years <= 0:
+        return 0.0
+
+    # Interpolacja dla niecałkowitych lat
+    if years in curve:
+        rv_pct = curve[years]
+    else:
+        lower = max(k for k in curve if k <= years)
+        upper = min(k for k in curve if k >= years)
+        if lower == upper:
+            rv_pct = curve[lower]
         else:
-            rate = 0.12 if segment_idx <= 4 else 0.08
-    return vehicle_price - vehicle_price * ((1 - rate) ** period_years)
+            frac = (years - lower) / (upper - lower)
+            rv_pct = curve[lower] + frac * (curve[upper] - curve[lower])
+
+    return vehicle_price * (1.0 - rv_pct)
 
 
 def estimate_insurance(vehicle_price, engine_type):
@@ -934,7 +994,7 @@ def estimate_insurance(vehicle_price, engine_type):
 
 
 def calculate_tco_quick(
-    vehicle_price, engine_type, is_new, annual_mileage, period_years, city_pct,
+    vehicle_price, engine_type, is_new, annual_mileage, period_years, road_split,
     fuel_price=0, city_l=0, highway_l=0,
     city_kwh=0, highway_kwh=0, battery_cap=75,
     pv_kwp=0, bess_kwh=0, has_home_charger=True,
@@ -946,9 +1006,9 @@ def calculate_tco_quick(
     total_km = annual_mileage * period_years
     mkm = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
     if engine_type == "ICE":
-        _, fa, _ = calc_annual_fuel_ice(city_l, highway_l, city_pct, mkm, fuel_price)
+        _, fa, _ = calc_annual_fuel_ice(city_l, highway_l, road_split, mkm, fuel_price)
     else:
-        dem, _ = calc_annual_consumption_bev(city_kwh, highway_kwh, city_pct, mkm)
+        dem, _ = calc_annual_consumption_bev(city_kwh, highway_kwh, road_split, mkm)
         ch = optimize_charging(dem, battery_cap, pv_kwp, bess_kwh,
                                has_home_charger, has_dynamic_tariff, has_old_pv,
                                suc_distance, annual_mileage)
@@ -1030,7 +1090,20 @@ BEV_PRESETS_USED = {
     "Renault Zoe R135 2021": {"price": 58_000, "city_kwh": 15.0, "hwy_kwh": 18.0, "bat": 52},
     "Skoda Enyaq 80 2022": {"price": 125_000, "city_kwh": 17.5, "hwy_kwh": 20.5, "bat": 77},
     "BMW iX1 eDrive20 2023": {"price": 155_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 65},
+    "Lexus UX 300e 2022": {"price": 135_000, "city_kwh": 17.0, "hwy_kwh": 20.0, "bat": 54},
 }
+
+# ---------------------------------------------------------------------------
+# ODCZYT PARAMETRÓW Z URL (query_params) — umożliwia udostępnianie linku
+# ---------------------------------------------------------------------------
+_qp = st.query_params
+_qp_v_ice = int(_qp.get("v_ice", 0))
+_qp_v_bev = int(_qp.get("v_bev", 0))
+_qp_km = int(_qp.get("km", 0))
+_qp_yrs = int(_qp.get("yrs", 0))
+_qp_city = int(_qp.get("city", 0))
+_qp_rural = int(_qp.get("rural", 0))
+_qp_hwy = int(_qp.get("hwy", 0))
 
 col_ice, col_bev = st.columns(2)
 
@@ -1058,7 +1131,7 @@ with col_ice:
     vehicle_value_ice = st.number_input(
         "Wartość auta ICE – brutto (zł)",
         min_value=5_000, max_value=1_000_000,
-        value=ice_p["price"],
+        value=_qp_v_ice if _qp_v_ice > 0 else ice_p["price"],
         step=5_000,
         help="Cena katalogowa / rynkowa brutto (z VAT).",
     )
@@ -1128,7 +1201,7 @@ with col_bev:
     vehicle_value_bev = st.number_input(
         "Wartość auta BEV – brutto (zł)",
         min_value=5_000, max_value=1_000_000,
-        value=bev_p["price"],
+        value=_qp_v_bev if _qp_v_bev > 0 else bev_p["price"],
         step=5_000,
         help="Cena katalogowa / rynkowa brutto (z VAT).",
     )
@@ -1214,7 +1287,8 @@ st.header("2. Parametry eksploatacji")
 col1, col2 = st.columns(2)
 with col1:
     annual_mileage = st.number_input(
-        "Roczny przebieg (km)", min_value=5000, max_value=200_000, value=30_000, step=5000
+        "Roczny przebieg (km)", min_value=5000, max_value=200_000,
+        value=_qp_km if _qp_km >= 5000 else 30_000, step=5000,
     )
     # Domyślny okres = max okres leasingu (jeśli aktywny)
     _default_period = 3
@@ -1224,12 +1298,32 @@ with col1:
             leasing_bev["lease_months"] if leasing_bev else 0,
         )
         _default_period = max(1, min(10, -(-_lm // 12)))  # ceil division, clamp 1-10
-    period_years = st.slider("Okres analizy (lata)", 1, 10, _default_period)
+    period_years = st.slider("Okres analizy (lata)", 1, 10,
+                             _qp_yrs if 1 <= _qp_yrs <= 10 else _default_period)
 with col2:
-    city_pct = st.slider(
-        "Udział jazdy miejskiej (%)", 0, 100, 60,
-        help="Reszta to trasa / autostrada."
-    ) / 100.0
+    st.markdown("**Profil tras**")
+    _rs1, _rs2, _rs3 = st.columns(3)
+    with _rs1:
+        pct_city = st.slider("Miasto (%)", 0, 100,
+                             _qp_city if 0 < _qp_city <= 100 else 50, key="pct_city")
+    with _rs2:
+        pct_rural = st.slider("Krajowa (%)", 0, 100,
+                              _qp_rural if 0 < _qp_rural <= 100 else 30, key="pct_rural")
+    with _rs3:
+        pct_highway = st.slider("Autostrada (%)", 0, 100,
+                                _qp_hwy if 0 < _qp_hwy <= 100 else 20, key="pct_highway")
+    _total = pct_city + pct_rural + pct_highway
+    if _total == 0:
+        _total = 1
+    pct_city_n = pct_city / _total
+    pct_rural_n = pct_rural / _total
+    pct_highway_n = pct_highway / _total
+    road_split = (pct_city_n, pct_rural_n, pct_highway_n)
+    city_pct = pct_city_n  # backward compat dla ML/klasteryzacji
+    st.caption(
+        f"Normalizacja: Miasto {pct_city_n:.0%} · Krajowa {pct_rural_n:.0%} "
+        f"· Autostrada {pct_highway_n:.0%}"
+    )
 
     # Cena paliwa z e-petrol lub ręcznie
     if "Benzyna" in fuel_type:
@@ -1309,7 +1403,11 @@ if pv_kwp > 0:
 
 # Szacunkowe zużycie prądu w domu (PC + BEV)
 if has_heat_pump:
-    est_bev_annual = annual_mileage / 100 * (city_pct * bev_city_kwh + (1 - city_pct) * bev_highway_kwh)
+    pct_c, pct_r, pct_h = road_split
+    est_bev_annual = annual_mileage / 100 * (
+        pct_c * bev_city_kwh + pct_r * bev_highway_kwh
+        + pct_h * bev_highway_kwh * HIGHWAY_SPEED_MULTIPLIER_BEV
+    )
     est_home_base = 3500  # typowe zużycie domu bez PC i BEV
     total_home_kwh = est_home_base + HEAT_PUMP_ANNUAL_KWH + est_bev_annual
     with st.expander("Szacunkowe zużycie prądu w domu"):
@@ -1355,7 +1453,7 @@ with col6:
     )
 
 # Ładowanie trasowe – widoczne gdy dużo trasy
-highway_pct = 1.0 - city_pct
+highway_pct = pct_rural_n + pct_highway_n
 if highway_pct >= 0.3:
     st.subheader("Ładowanie trasowe (poza domem)")
     st.caption(
@@ -1451,8 +1549,8 @@ with st.expander("Podgląd wpływu temperatury na zużycie (miesięcznie)"):
             "BEV trasa": f"{bev_highway_kwh * bev_mh:.1f} kWh",
             "ICE miasto": f"{ice_city_l * ice_mc:.1f} l",
             "ICE trasa": f"{ice_highway_l * ice_mh:.1f} l",
-            "BEV mnożnik": f"×{(city_pct * bev_mc + (1 - city_pct) * bev_mh):.2f}",
-            "ICE mnożnik": f"×{(city_pct * ice_mc + (1 - city_pct) * ice_mh):.2f}",
+            "BEV mnożnik": f"×{(pct_city_n * bev_mc + (pct_rural_n + pct_highway_n) * bev_mh):.2f}",
+            "ICE mnożnik": f"×{(pct_city_n * ice_mc + (pct_rural_n + pct_highway_n) * ice_mh):.2f}",
         })
     st.dataframe(pd.DataFrame(temp_rows), use_container_width=True, hide_index=True)
     st.caption(
@@ -1473,11 +1571,12 @@ if st.session_state.get("tco_calculated", False):
 
     # --- ICE ---
     ice_liters_annual, fuel_cost_annual, ice_monthly_liters = calc_annual_fuel_ice(
-        ice_city_l, ice_highway_l, city_pct, monthly_km, fuel_price,
+        ice_city_l, ice_highway_l, road_split, monthly_km, fuel_price,
     )
     fuel_cost_total = fuel_cost_annual * period_years
 
-    nominal_ice_l = city_pct * ice_city_l + (1 - city_pct) * ice_highway_l
+    _pc, _pr, _ph = road_split
+    nominal_ice_l = _pc * ice_city_l + _pr * ice_highway_l + _ph * ice_highway_l * HIGHWAY_SPEED_MULTIPLIER_ICE
     nominal_ice_liters = annual_mileage / 100 * nominal_ice_l
     ice_temp_penalty_pct = (ice_liters_annual / nominal_ice_liters - 1) * 100 if nominal_ice_liters > 0 else 0
 
@@ -1507,10 +1606,10 @@ if st.session_state.get("tco_calculated", False):
 
     # --- BEV ---
     annual_energy_demand, bev_monthly_kwh = calc_annual_consumption_bev(
-        bev_city_kwh, bev_highway_kwh, city_pct, monthly_km,
+        bev_city_kwh, bev_highway_kwh, road_split, monthly_km,
     )
 
-    nominal_bev_kwh_100 = city_pct * bev_city_kwh + (1 - city_pct) * bev_highway_kwh
+    nominal_bev_kwh_100 = _pc * bev_city_kwh + _pr * bev_highway_kwh + _ph * bev_highway_kwh * HIGHWAY_SPEED_MULTIPLIER_BEV
     nominal_bev_annual = annual_mileage / 100 * nominal_bev_kwh_100
     bev_temp_penalty_pct = (annual_energy_demand / nominal_bev_annual - 1) * 100 if nominal_bev_annual > 0 else 0
 
@@ -1606,6 +1705,14 @@ if st.session_state.get("tco_calculated", False):
             c2.metric("Tarcza podatkowa", f"-{tax_shield_bev:,.0f} zł")
             c3.metric("TCO netto (po sprzedaży)", f"{tco_net_bev:,.0f} zł",
                        help="TCO brutto − wartość rezydualna = realny koszt posiadania")
+
+        if period_years >= 8 and (not is_new_bev or not is_new_ice):
+            pass  # używane — próg baterii może nie mieć zastosowania
+        elif period_years >= 8:
+            st.info(
+                "Po 8. roku eksploatacji gwarancja baterii HV wygasa — "
+                "uwzględniono przyspieszoną utratę wartości BEV w krzywej deprecjacji."
+            )
 
         # --- Rozbicie tarczy podatkowej ---
         if use_tax_shield and tax_data_ice and tax_data_bev and usage_type != "prywatne":
@@ -2170,7 +2277,7 @@ if st.session_state.get("tco_calculated", False):
         rw_bev, rw_ice = predict_realworld(ml, city_pct, annual_mileage, has_home_charger, pv_kwp)
         col_rw1, col_rw2 = st.columns(2)
         with col_rw1:
-            nominal_bev = city_pct * bev_city_kwh + (1 - city_pct) * bev_highway_kwh
+            nominal_bev = pct_city_n * bev_city_kwh + pct_rural_n * bev_highway_kwh + pct_highway_n * bev_highway_kwh * HIGHWAY_SPEED_MULTIPLIER_BEV
             corrected_bev = nominal_bev * rw_bev
             st.metric(
                 f"BEV: mnożnik ×{rw_bev:.2f}",
@@ -2179,7 +2286,7 @@ if st.session_state.get("tco_calculated", False):
                 delta_color="inverse",
             )
         with col_rw2:
-            nominal_ice = city_pct * ice_city_l + (1 - city_pct) * ice_highway_l
+            nominal_ice = pct_city_n * ice_city_l + pct_rural_n * ice_highway_l + pct_highway_n * ice_highway_l * HIGHWAY_SPEED_MULTIPLIER_ICE
             corrected_ice = nominal_ice * rw_ice
             st.metric(
                 f"ICE: mnożnik ×{rw_ice:.2f}",
@@ -2196,7 +2303,7 @@ if st.session_state.get("tco_calculated", False):
         st.subheader("Prognoza kosztów energii – 12 miesięcy")
         df_forecast = forecast_monthly_costs(
             energy_cost_annual, fuel_cost_annual,
-            bev_city_kwh, bev_highway_kwh, city_pct,
+            bev_city_kwh, bev_highway_kwh, road_split,
             ice_city_l, ice_highway_l, fuel_price,
             annual_mileage,
         )
@@ -2291,7 +2398,7 @@ if "Doradca" in opt_mode:
         scenarios = []
         # ICE baseline
         r = calculate_tco_quick(
-            vehicle_price_ice, "ICE", is_new_ice, annual_mileage, period_years, city_pct,
+            vehicle_price_ice, "ICE", is_new_ice, annual_mileage, period_years, road_split,
             fuel_price=fuel_price, city_l=ice_city_l, highway_l=ice_highway_l,
             use_tax=use_tax_shield, tax_rate=tax_rate)
         scenarios.append({"Konfig.": f"ICE: {ice_model}", "PV": 0, "BESS": 0,
@@ -2310,7 +2417,7 @@ if "Doradca" in opt_mode:
                 for dyn, tname in tariff_opts:
                     r = calculate_tco_quick(
                         vehicle_price_bev, "BEV", is_new_bev, annual_mileage,
-                        period_years, city_pct,
+                        period_years, road_split,
                         city_kwh=bev_city_kwh, highway_kwh=bev_highway_kwh,
                         battery_cap=battery_capacity, pv_kwp=pv, bess_kwh=bess,
                         has_home_charger=has_garage, has_dynamic_tariff=dyn,
@@ -2395,7 +2502,7 @@ elif "Punkt zwrotny" in opt_mode:
                 segment_idx_bev, 100_000, "BEV", is_new_bev, brand=bev_model)["per_km"]
 
             dem_ref, _ = calc_annual_consumption_bev(
-                bev_city_kwh, bev_highway_kwh, city_pct, mkm_ref)
+                bev_city_kwh, bev_highway_kwh, road_split, mkm_ref)
             ch_ref = optimize_charging(
                 dem_ref, battery_capacity, pv_kwp, bess_kwh,
                 has_home_charger, has_dynamic_tariff, has_old_pv,
@@ -2403,7 +2510,7 @@ elif "Punkt zwrotny" in opt_mode:
             bev_energy_per_km = ch_ref["total_cost"] / annual_mileage if annual_mileage > 0 else 0.5
 
             _, ice_fuel_ref, _ = calc_annual_fuel_ice(
-                ice_city_l, ice_highway_l, city_pct, mkm_ref, 1.0)
+                ice_city_l, ice_highway_l, road_split, mkm_ref, 1.0)
             ice_l_per_km = ice_fuel_ref / annual_mileage if annual_mileage > 0 else 0.07
 
             ins_ice_a = estimate_insurance(vehicle_price_ice, "ICE")
@@ -2510,14 +2617,63 @@ else:
         "dla **ICE** w l/100km. Każdy BEV przechodzi optymalizację HiGHS LP."
     )
 
+    # Konkurenci segmentowi — po 2 auta (ICE + BEV) na segment cenowy
+    _FLEET_COMPETITORS = {
+        0: [  # do 20k
+            {"Model": "Fiat Panda 2015", "Cena (zł)": 18_000, "Napęd": "ICE", "Miasto (/100km)": 7.0, "Trasa (/100km)": 5.5},
+            {"Model": "Renault Zoe 2017", "Cena (zł)": 19_000, "Napęd": "BEV", "Miasto (/100km)": 16.0, "Trasa (/100km)": 19.0},
+        ],
+        1: [  # 20-35k
+            {"Model": "Toyota Yaris 2019", "Cena (zł)": 32_000, "Napęd": "ICE", "Miasto (/100km)": 6.5, "Trasa (/100km)": 5.0},
+            {"Model": "Nissan Leaf 24kWh 2017", "Cena (zł)": 30_000, "Napęd": "BEV", "Miasto (/100km)": 15.5, "Trasa (/100km)": 18.5},
+        ],
+        2: [  # 35-50k
+            {"Model": "Opel Corsa 2021", "Cena (zł)": 45_000, "Napęd": "ICE", "Miasto (/100km)": 7.0, "Trasa (/100km)": 5.5},
+            {"Model": "Renault Zoe R135 2021", "Cena (zł)": 48_000, "Napęd": "BEV", "Miasto (/100km)": 15.0, "Trasa (/100km)": 18.0},
+        ],
+        3: [  # 50-75k
+            {"Model": "VW Golf 1.5 TSI 2022", "Cena (zł)": 68_000, "Napęd": "ICE", "Miasto (/100km)": 7.5, "Trasa (/100km)": 5.5},
+            {"Model": "Nissan Leaf 40kWh 2020", "Cena (zł)": 65_000, "Napęd": "BEV", "Miasto (/100km)": 16.0, "Trasa (/100km)": 19.0},
+        ],
+        4: [  # 75-105k
+            {"Model": "Toyota Corolla 1.8 HEV", "Cena (zł)": 98_000, "Napęd": "ICE", "Miasto (/100km)": 5.5, "Trasa (/100km)": 5.0},
+            {"Model": "MG4 Electric Standard", "Cena (zł)": 95_000, "Napęd": "BEV", "Miasto (/100km)": 15.5, "Trasa (/100km)": 18.5},
+        ],
+        5: [  # 105-145k
+            {"Model": "VW Golf 2.0 TDI", "Cena (zł)": 135_000, "Napęd": "ICE", "Miasto (/100km)": 6.5, "Trasa (/100km)": 4.8},
+            {"Model": "BYD Atto 3", "Cena (zł)": 130_000, "Napęd": "BEV", "Miasto (/100km)": 16.0, "Trasa (/100km)": 19.5},
+        ],
+        6: [  # 145-185k
+            {"Model": "Toyota Camry 2.5 HEV", "Cena (zł)": 165_000, "Napęd": "ICE", "Miasto (/100km)": 6.0, "Trasa (/100km)": 5.5},
+            {"Model": "Tesla Model 3 RWD", "Cena (zł)": 175_000, "Napęd": "BEV", "Miasto (/100km)": 13.5, "Trasa (/100km)": 16.0},
+        ],
+        7: [  # 185-230k
+            {"Model": "BMW 320i 2024", "Cena (zł)": 210_000, "Napęd": "ICE", "Miasto (/100km)": 8.0, "Trasa (/100km)": 6.0},
+            {"Model": "Tesla Model Y LR AWD", "Cena (zł)": 219_000, "Napęd": "BEV", "Miasto (/100km)": 16.0, "Trasa (/100km)": 19.0},
+        ],
+        8: [  # 230-300k
+            {"Model": "Mercedes C300 AMG", "Cena (zł)": 265_000, "Napęd": "ICE", "Miasto (/100km)": 9.5, "Trasa (/100km)": 7.0},
+            {"Model": "BMW i4 eDrive40", "Cena (zł)": 260_000, "Napęd": "BEV", "Miasto (/100km)": 16.5, "Trasa (/100km)": 19.5},
+        ],
+        9: [  # 300k+
+            {"Model": "BMW M340i xDrive", "Cena (zł)": 340_000, "Napęd": "ICE", "Miasto (/100km)": 10.5, "Trasa (/100km)": 7.5},
+            {"Model": "Tesla Model S LR", "Cena (zł)": 380_000, "Napęd": "BEV", "Miasto (/100km)": 18.0, "Trasa (/100km)": 21.0},
+        ],
+    }
+
+    # Dobierz konkurentów z segmentu wybranego auta (wg droższego z pary ICE/BEV)
+    _ref_seg = max(segment_idx_ice, segment_idx_bev)
+    _competitors = _FLEET_COMPETITORS.get(_ref_seg, _FLEET_COMPETITORS[5])
+    # Filtruj: nie dodawaj konkurenta jeśli to ten sam model co wybrany
+    _extra = [c for c in _competitors
+              if c["Model"] != ice_model and c["Model"] != bev_model]
+
     default_cars = pd.DataFrame([
         {"Model": ice_model, "Cena (zł)": vehicle_price_ice, "Napęd": "ICE",
          "Miasto (/100km)": ice_city_l, "Trasa (/100km)": ice_highway_l},
         {"Model": bev_model, "Cena (zł)": vehicle_price_bev, "Napęd": "BEV",
          "Miasto (/100km)": bev_city_kwh, "Trasa (/100km)": bev_highway_kwh},
-        {"Model": "Dacia Spring 2025", "Cena (zł)": 85_000, "Napęd": "BEV",
-         "Miasto (/100km)": 14.0, "Trasa (/100km)": 17.0},
-    ])
+    ] + _extra)
 
     edited_cars = st.data_editor(
         default_cars,
@@ -2548,7 +2704,7 @@ else:
                 if etype == "ICE":
                     r = calculate_tco_quick(
                         car["Cena (zł)"], "ICE", is_new_ice, annual_mileage,
-                        period_years, city_pct,
+                        period_years, road_split,
                         fuel_price=fuel_price,
                         city_l=car["Miasto (/100km)"],
                         highway_l=car["Trasa (/100km)"],
@@ -2556,7 +2712,7 @@ else:
                 else:
                     r = calculate_tco_quick(
                         car["Cena (zł)"], "BEV", is_new_bev, annual_mileage,
-                        period_years, city_pct,
+                        period_years, road_split,
                         city_kwh=car["Miasto (/100km)"],
                         highway_kwh=car["Trasa (/100km)"],
                         battery_cap=battery_capacity, pv_kwp=pv_kwp,
@@ -2629,6 +2785,95 @@ else:
             show_p["zł/km"] = show_p["zł/km"].apply(lambda x: f"{x:.2f}")
             st.dataframe(show_p, use_container_width=True, hide_index=True)
 
+
+# ---------------------------------------------------------------------------
+# EKSPORT WYNIKÓW — PDF / CSV / URL
+# ---------------------------------------------------------------------------
+if st.session_state.get("tco_calculated"):
+    st.divider()
+    st.subheader("Eksport wyników")
+    exp_c1, exp_c2, exp_c3 = st.columns(3)
+
+    with exp_c1:
+        # PDF download
+        from fpdf import FPDF
+        import unicodedata
+        def _strip_pl(text: str) -> str:
+            """Strip Polish diacritics for PDF (Helvetica has no Unicode)."""
+            _map = str.maketrans("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ", "acelnoszzACELNOSZZ")
+            return text.translate(_map)
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.cell(0, 10, "Czym Pojade 2026 - Raport TCO", ln=True, align="C")
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 7, _strip_pl(f"ICE: {ice_model} ({vehicle_value_ice:,.0f} zl)"), ln=True)
+        pdf.cell(0, 7, _strip_pl(f"BEV: {bev_model} ({vehicle_value_bev:,.0f} zl)"), ln=True)
+        pdf.cell(0, 7, f"Przebieg: {annual_mileage:,} km/rok | Okres: {period_years} lat", ln=True)
+        _pc_d, _pr_d, _ph_d = road_split
+        pdf.cell(0, 7, f"Profil tras: Miasto {_pc_d:.0%} | Krajowa {_pr_d:.0%} | Autostrada {_ph_d:.0%}", ln=True)
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, "Wyniki", ln=True)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 7, f"TCO netto ICE: {tco_net_ice:,.0f} zl | BEV: {tco_net_bev:,.0f} zl", ln=True)
+        pdf.cell(0, 7, f"Koszt/km ICE: {cost_per_km_ice:.2f} zl | BEV: {cost_per_km_bev:.2f} zl", ln=True)
+        pdf.cell(0, 7, _strip_pl(f"Roznica: {abs(tco_net_ice - tco_net_bev):,.0f} zl na korzysc {'BEV' if tco_net_bev < tco_net_ice else 'ICE'}"), ln=True)
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, _strip_pl("Rozbicie kosztow"), ln=True)
+        pdf.set_font("Helvetica", "", 9)
+        # Table header
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(80, 6, "Kategoria", border=1)
+        pdf.cell(50, 6, "ICE", border=1, align="R")
+        pdf.cell(50, 6, "BEV", border=1, align="R", ln=True)
+        pdf.set_font("Helvetica", "", 9)
+        for cat, iv, bv in zip(detail_cats, ice_detail, bev_detail):
+            if cat == "":
+                continue
+            pdf.cell(80, 5, _strip_pl(cat[:40]), border=1)
+            pdf.cell(50, 5, _strip_pl(str(iv)[:25]), border=1, align="R")
+            pdf.cell(50, 5, _strip_pl(str(bv)[:25]), border=1, align="R", ln=True)
+        pdf.ln(6)
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.cell(0, 5, f"Wygenerowano: czympojade.pl v{APP_VERSION}", ln=True)
+        pdf_bytes = pdf.output()
+        st.download_button(
+            "Pobierz raport PDF", pdf_bytes,
+            "czympojade_raport.pdf", "application/pdf",
+        )
+
+    with exp_c2:
+        # CSV download
+        import io, csv
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["Kategoria", "ICE", "BEV"])
+        for cat, iv, bv in zip(detail_cats, ice_detail, bev_detail):
+            w.writerow([cat, iv, bv])
+        st.download_button(
+            "Pobierz CSV", buf.getvalue(),
+            "czympojade_raport.csv", "text/csv",
+        )
+
+    with exp_c3:
+        # URL sharing
+        if st.button("Udostepnij link do obliczen"):
+            params = {
+                "v_ice": int(vehicle_value_ice),
+                "v_bev": int(vehicle_value_bev),
+                "new_ice": int(is_new_ice),
+                "new_bev": int(is_new_bev),
+                "km": annual_mileage,
+                "yrs": period_years,
+                "city": pct_city,
+                "rural": pct_rural,
+                "hwy": pct_highway,
+            }
+            st.query_params.update(params)
+            st.success("Link zaktualizowany — skopiuj URL z paska przegladarki.")
 
 # ---------------------------------------------------------------------------
 # SŁOWNIK SKRÓTÓW
