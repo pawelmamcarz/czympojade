@@ -1306,7 +1306,7 @@ _PROFILE_DEFAULTS = {
 _pdef = _PROFILE_DEFAULTS[_profile_id]
 
 # KROK 1: Dane pojazdu
-st.header("1. Twoje pojazdy")
+st.header("1. Wybierz pojazdy")
 
 # --- Presety popularnych modeli (pogrupowane wg segmentu A–E) ---
 _CUSTOM_ICE_NEW = {"price": 140_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 0}
@@ -2497,29 +2497,44 @@ if st.session_state.get("tco_calculated", False):
     ])
 
     with tab1:
+        # Compact metric CSS — zmniejszony font żeby duże liczby się mieściły
+        st.markdown(
+            '<style>'
+            '[data-testid="stMetricValue"] { font-size: 1.35rem !important; }'
+            '[data-testid="stMetricDelta"] { font-size: 0.75rem !important; }'
+            '</style>',
+            unsafe_allow_html=True,
+        )
+
+        def _fmt_k(v: float) -> str:
+            """Format large numbers compactly: 238170 → '238 tys. zł'."""
+            if abs(v) >= 1_000:
+                return f"{v/1000:,.1f} tys. zł".replace(".0 ", " ")
+            return f"{v:,.0f} zł"
+
         # RV i TCO netto
         col_rv1, col_rv2, col_rv3 = st.columns(3)
         with col_rv1:
             st.markdown(f"**🔴 {ice_model}**")
             c1, c2, c3 = st.columns(3)
-            c1.metric("RV", f"{rv_ice:,.0f} zł",
-                       delta=f"-{depreciation_ice:,.0f}", delta_color="inverse")
-            c2.metric("Tarcza", f"-{tax_shield_ice:,.0f}")
-            c3.metric("TCO netto", f"{tco_net_ice:,.0f} zł")
+            c1.metric("RV", _fmt_k(rv_ice),
+                       delta=f"-{depreciation_ice/1000:,.0f}k", delta_color="inverse")
+            c2.metric("Tarcza", f"-{tax_shield_ice/1000:,.1f}k")
+            c3.metric("TCO netto", _fmt_k(tco_net_ice))
         with col_rv2:
             st.markdown(f"**🟠 {hyb_model}**")
             c1, c2, c3 = st.columns(3)
-            c1.metric("RV", f"{rv_hyb:,.0f} zł",
-                       delta=f"-{depreciation_hyb:,.0f}", delta_color="inverse")
-            c2.metric("Tarcza", f"-{tax_shield_hyb:,.0f}")
-            c3.metric("TCO netto", f"{tco_net_hyb:,.0f} zł")
+            c1.metric("RV", _fmt_k(rv_hyb),
+                       delta=f"-{depreciation_hyb/1000:,.0f}k", delta_color="inverse")
+            c2.metric("Tarcza", f"-{tax_shield_hyb/1000:,.1f}k")
+            c3.metric("TCO netto", _fmt_k(tco_net_hyb))
         with col_rv3:
             st.markdown(f"**🟢 {bev_model}**")
             c1, c2, c3 = st.columns(3)
-            c1.metric("RV", f"{rv_bev:,.0f} zł",
-                       delta=f"-{depreciation_bev:,.0f}", delta_color="inverse")
-            c2.metric("Tarcza", f"-{tax_shield_bev:,.0f}")
-            c3.metric("TCO netto", f"{tco_net_bev:,.0f} zł")
+            c1.metric("RV", _fmt_k(rv_bev),
+                       delta=f"-{depreciation_bev/1000:,.0f}k", delta_color="inverse")
+            c2.metric("Tarcza", f"-{tax_shield_bev/1000:,.1f}k")
+            c3.metric("TCO netto", _fmt_k(tco_net_bev))
 
         if period_years >= 8 and (not is_new_bev or not is_new_ice):
             pass  # używane — próg baterii może nie mieć zastosowania
@@ -2935,6 +2950,123 @@ if st.session_state.get("tco_calculated", False):
                     "G14dynamic: opłata dystrybucyjna zmienia się wg pory dnia. "
                     "Optymalizator automatycznie ładuje auto w najtańszych godzinach (noc/poranek)."
                 )
+
+        # --- Mapa klastrów kierowców ---
+        st.divider()
+        st.subheader("🗺️ Mapa klastrów kierowców")
+        st.caption(
+            "Heatmapa pokazuje centroidy 6 klastrów na podstawie 1000 syntetycznych profili. "
+            "Twój klaster jest oznaczony strzałką (→)."
+        )
+
+        _ml3 = get_ml_models()
+        _uf3 = {
+            "annual_mileage": annual_mileage,
+            "city_pct": city_pct,
+            "has_home_charger": int(has_home_charger),
+            "pv_kwp": pv_kwp,
+            "has_heat_pump": int(has_heat_pump),
+            "usage_type": {"firmowe": 0, "mieszane": 1, "prywatne": 2}.get(usage_type, 2),
+        }
+        _cl3 = predict_cluster(_ml3, _uf3)
+
+        # Build centroid matrix (normalized 0–1)
+        _feat_labels = ["Przebieg", "Miasto %", "Ładow. domowa", "PV (kWp)", "Pompa ciepła", "Użytkowanie"]
+        _feat_max = [80000, 1.0, 1.0, 20.0, 1.0, 2.0]
+        _cluster_names_list = []
+        _centroid_matrix = []
+        for cid in range(6):
+            _inv_map = {v: k for k, v in _ml3["label_map"].items()}
+            _raw = _inv_map[cid]
+            _co = _ml3["scaler"].inverse_transform(
+                _ml3["km"].cluster_centers_[_raw].reshape(1, -1)
+            )[0]
+            _co_dict = dict(zip(_ml3["cl_features"], _co))
+            _row = [
+                _co_dict["annual_mileage"] / _feat_max[0],
+                _co_dict["city_pct"] / _feat_max[1],
+                _co_dict["has_home_charger"] / _feat_max[2],
+                _co_dict["pv_kwp"] / _feat_max[3],
+                _co_dict["has_heat_pump"] / _feat_max[4],
+                _co_dict["usage_type"] / _feat_max[5],
+            ]
+            _centroid_matrix.append(_row)
+            _marker = " →" if cid == _cl3["cluster_id"] else ""
+            _cluster_names_list.append(f"{CLUSTER_NAMES[cid][0]}{_marker}")
+
+        _centroid_arr = np.array(_centroid_matrix)
+
+        # Annotated text values
+        _annot_text = []
+        for cid in range(6):
+            _inv_map2 = {v: k for k, v in _ml3["label_map"].items()}
+            _raw2 = _inv_map2[cid]
+            _co2 = _ml3["scaler"].inverse_transform(
+                _ml3["km"].cluster_centers_[_raw2].reshape(1, -1)
+            )[0]
+            _co2d = dict(zip(_ml3["cl_features"], _co2))
+            _annot_text.append([
+                f"{_co2d['annual_mileage']/1000:.0f}k",
+                f"{_co2d['city_pct']*100:.0f}%",
+                f"{'✓' if _co2d['has_home_charger'] > 0.5 else '✗'}",
+                f"{_co2d['pv_kwp']:.1f}",
+                f"{'✓' if _co2d['has_heat_pump'] > 0.5 else '✗'}",
+                f"{['Firma','Mix','Pryw.'][min(int(round(_co2d['usage_type'])), 2)]}",
+            ])
+
+        fig_hm = go.Figure(data=go.Heatmap(
+            z=_centroid_arr,
+            x=_feat_labels,
+            y=_cluster_names_list,
+            text=_annot_text,
+            texttemplate="%{text}",
+            textfont=dict(size=11),
+            colorscale="Blues",
+            showscale=False,
+        ))
+        fig_hm.update_layout(
+            title="Centroidy klastrów (wartości znormalizowane)",
+            height=350,
+            yaxis=dict(autorange="reversed"),
+            margin=dict(l=10, r=10, t=40, b=10),
+        )
+        st.plotly_chart(fig_hm, use_container_width=True)
+
+        # User vs cluster comparison (compact radar)
+        _col_hm1, _col_hm2 = st.columns([3, 2])
+        with _col_hm1:
+            _u_norm3 = [
+                annual_mileage / _feat_max[0], city_pct / _feat_max[1],
+                int(has_home_charger) / _feat_max[2], pv_kwp / _feat_max[3],
+                int(has_heat_pump) / _feat_max[4], _uf3["usage_type"] / _feat_max[5],
+            ]
+            _c_norm3 = _centroid_matrix[_cl3["cluster_id"]]
+            _fig_r3 = go.Figure()
+            _fig_r3.add_trace(go.Scatterpolar(
+                r=_u_norm3 + [_u_norm3[0]], theta=_feat_labels + [_feat_labels[0]],
+                fill="toself", name="Twój profil",
+                fillcolor="rgba(59, 130, 246, 0.2)", line_color="#3b82f6",
+            ))
+            _fig_r3.add_trace(go.Scatterpolar(
+                r=_c_norm3 + [_c_norm3[0]], theta=_feat_labels + [_feat_labels[0]],
+                fill="toself", name=_cl3["name"],
+                fillcolor="rgba(239, 68, 68, 0.15)", line_color="#ef4444",
+            ))
+            _fig_r3.update_layout(
+                polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+                title="Twój profil vs centroid klastra",
+                height=380, showlegend=True, margin=dict(t=40, b=20),
+            )
+            st.plotly_chart(_fig_r3, use_container_width=True)
+        with _col_hm2:
+            st.metric("Twój klaster", _cl3["name"])
+            st.metric("Dopasowanie", f"{_cl3['similarity']:.0f}%")
+            st.caption(_cl3["desc"])
+            st.markdown("---")
+            st.caption(
+                "**6 klastrów** wyznaczonych algorytmem KMeans na 1000 syntetycznych profili "
+                "polskich kierowców. Centroidy pokazują typowe cechy każdej grupy."
+            )
 
     with tab4:
         st.subheader("Szczegółowe zestawienie kosztów (brutto / cashflow)")
