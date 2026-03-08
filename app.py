@@ -282,7 +282,7 @@ def optimize_charging(
     h.addVars(num_vars, lower.tolist(), upper.tolist())
 
     # Ustaw funkcję celu (minimalizacja)
-    h.changeColsCostByRange(0, num_vars - 1, costs.tolist())
+    h.changeColsCost(num_vars, np.arange(num_vars, dtype=np.int32), costs)
     h.changeObjectiveSense(highspy.ObjSense.kMinimize)
 
     # --- Ograniczenia ---
