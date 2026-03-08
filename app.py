@@ -2616,9 +2616,10 @@ if st.session_state.get("tco_calculated", False):
         ice_cum, hyb_cum, bev_cum = [], [], []
         for mo in months_range:
             frac = mo / (period_years * 12)
-            ice_cum.append(total_acquisition_ice + (fuel_cost_total + maint_ice + insurance_ice) * frac - tax_shield_ice * frac)
-            hyb_cum.append(total_acquisition_hyb + (hyb_energy_cost_total + maint_hyb + insurance_hyb) * frac - tax_shield_hyb * frac)
-            bev_cum.append(total_acquisition_bev + (energy_cost_total + maint_bev + insurance_bev) * frac - tax_shield_bev * frac)
+            # Cashflow brutto: zakup + eksploatacja (bez tarczy — ta idzie do gwiazdek netto)
+            ice_cum.append(total_acquisition_ice + (fuel_cost_total + maint_ice + insurance_ice) * frac)
+            hyb_cum.append(total_acquisition_hyb + (hyb_energy_cost_total + maint_hyb + insurance_hyb) * frac)
+            bev_cum.append(total_acquisition_bev + (energy_cost_total + maint_bev + insurance_bev) * frac)
 
         fig_line = go.Figure()
         fig_line.add_trace(go.Scatter(
@@ -2689,8 +2690,8 @@ if st.session_state.get("tco_calculated", False):
                 )
 
         fig_line.update_layout(
-            title="Koszt narastający w czasie (gwiazdki = TCO netto po sprzedaży auta)",
-            xaxis_title="Miesiąc", yaxis_title="Koszt skumulowany (PLN)", height=500,
+            title="Cashflow brutto narastająco (★ = TCO netto po odliczeniu RV i tarczy)",
+            xaxis_title="Miesiąc", yaxis_title="Wydatki skumulowane (PLN)", height=500,
         )
         st.plotly_chart(fig_line, use_container_width=True)
 
