@@ -22,6 +22,7 @@ from market_data import (
     get_depreciation_curve,
     get_model_depreciation,
     get_data_freshness,
+    _get_supabase,
     FUEL_DEFAULTS,
     KNOWN_MSRP,
     TRACKED_MODELS,
@@ -272,6 +273,34 @@ class TestDataFreshness:
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+
+class TestSupabaseDetection:
+    def test_no_credentials_returns_none(self):
+        """Without Supabase credentials, _get_supabase() returns None."""
+        import market_data
+        # Reset singleton to force re-check
+        market_data._sb_client = None
+        market_data._sb_checked = False
+        result = _get_supabase()
+        assert result is None
+        # Reset for other tests
+        market_data._sb_checked = False
+
+    def test_sqlite_fallback_with_conn(self, db):
+        """When conn is provided, always uses SQLite (no Supabase)."""
+        _insert_fuel(db, "2026-03-01", pb95=6.80)
+        result = _load_latest_fuel(db)
+        assert result["pb95"] == 6.80
+        assert result["source"] == "e-petrol.pl (cached)"
+
+    def test_data_freshness_with_backend(self, db):
+        """Freshness info includes backend field."""
+        _insert_fuel(db, "2026-03-08")
+        _insert_listing(db, "Tesla", "Model Y", 2023, 150_000, "BEV", 189_000)
+        result = get_data_freshness(conn=db)
+        assert result is not None
+        assert result["backend"] == "sqlite"
+
 
 class TestConstants:
     def test_known_msrp_has_entries(self):

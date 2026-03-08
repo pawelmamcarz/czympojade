@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "0.16.0"
+APP_VERSION = "0.16.1"
 
 import streamlit as st
 import numpy as np
