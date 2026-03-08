@@ -938,12 +938,12 @@ class TestTCOQuickLPG:
 
 
 # ===========================================================================
-# 28. v21 — APP_VERSION = "21"
+# 28. v22 — APP_VERSION = "22"
 # ===========================================================================
 
-class TestVersion21:
-    def test_version_21(self):
-        assert app.APP_VERSION == "21"
+class TestVersion22:
+    def test_version_22(self):
+        assert app.APP_VERSION == "22"
 
 
 if __name__ == "__main__":
