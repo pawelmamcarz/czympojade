@@ -469,11 +469,15 @@ def optimize_charging(
 # KOSZTY SERWISOWE
 # ---------------------------------------------------------------------------
 
+TESLA_WARRANTY_KM = 82_000  # Tesla: gwarancja na zawieszenie i hamulce do 82 000 km
+
 def calculate_maintenance_cost(
     segment_idx: int, mileage_km: float, engine_type: str, is_new: bool,
+    brand: str = "",
 ) -> dict:
     """Zwraca słownik z rozbiciem kosztów serwisowych."""
     discount = NEW_CAR_MAINTENANCE_DISCOUNT if is_new else 1.0
+    is_tesla = "tesla" in brand.lower()
 
     if engine_type == "ICE":
         min_c, max_c = ICE_MAINTENANCE_COSTS[segment_idx]
@@ -513,15 +517,34 @@ def calculate_maintenance_cost(
         min_c, max_c = BEV_MAINTENANCE_COST_PER_KM
         total_per_km = (min_c + max_c) / 2 * discount
         total = total_per_km * mileage_km
+
+        # Tesla: gwarancja na zawieszenie i hamulce do 82 000 km
+        warranty_km = min(mileage_km, TESLA_WARRANTY_KM) if (is_tesla and is_new) else 0
+        post_warranty_km = max(0, mileage_km - warranty_km)
+
+        brake_cost = post_warranty_km * 0.01 * discount if is_tesla else mileage_km * 0.01 * discount
+        susp_note = ""
+        if is_tesla and is_new:
+            susp_cost = post_warranty_km * 0.008 * discount
+            susp_note = f" (gwarancja Tesla do {TESLA_WARRANTY_KM:,} km)"
+        else:
+            susp_cost = 0
+
         breakdown = {
             "Filtry kabinowe": mileage_km * 0.01 * discount,
             "Płyn hamulcowy": mileage_km * 0.005 * discount,
-            "Hamulce (rzadsze – rekuperacja)": mileage_km * 0.01 * discount,
+            f"Hamulce (rekuperacja){' – gwarancja Tesla do ' + f'{TESLA_WARRANTY_KM:,} km' if is_tesla and is_new else ''}": brake_cost,
             "Opony (cięższe auto)": mileage_km * 0.025 * discount,
             "Przegląd / diagnostyka": mileage_km * 0.015 * discount,
         }
+        if is_tesla and is_new:
+            breakdown[f"Zawieszenie (po gwarancji, >{TESLA_WARRANTY_KM:,} km)"] = susp_cost
+
         breakdown = {k: max(0, v) for k, v in breakdown.items()}
-        return {"total": total, "per_km": total_per_km, "breakdown": breakdown}
+        total = sum(breakdown.values())
+        total_per_km = total / mileage_km if mileage_km > 0 else 0
+        return {"total": total, "per_km": total_per_km, "breakdown": breakdown,
+                "tesla_warranty": is_tesla and is_new}
 
 
 # ---------------------------------------------------------------------------
@@ -532,12 +555,74 @@ def calculate_tax_shield(
     vehicle_price: float, engine_type: str,
     annual_fuel_cost: float, insurance_annual: float,
     period_years: int, tax_rate: float = 0.19,
-) -> float:
+    usage_type: str = "firmowe",  # firmowe / mieszane / prywatne
+) -> dict:
+    """Szczegółowa tarcza podatkowa 2026 z rozbiciem VAT, KUP, leasingu."""
     limit = 100_000 if engine_type == "ICE" else 225_000
-    deduction_ratio = min(1.0, limit / vehicle_price) if vehicle_price > 0 else 1.0
-    annual_lease = vehicle_price / 4.0
-    annual_deductible = (annual_lease + annual_fuel_cost + insurance_annual) * deduction_ratio
-    return annual_deductible * tax_rate * period_years
+    is_bev = engine_type == "BEV"
+
+    # --- Współczynniki wg użytkowania ---
+    if usage_type == "firmowe":
+        kup_pct = 1.0       # 100% kosztów w KUP
+        vat_vehicle = 1.0   # 100% VAT od pojazdu (do limitu)
+        vat_fuel = 1.0 if is_bev else 0.5   # BEV: 100% VAT od energii, ICE: 50%
+        vat_ekspl = 1.0     # 100% VAT od eksploatacji
+    elif usage_type == "mieszane":
+        kup_pct = 0.75      # 75% kosztów w KUP
+        vat_vehicle = 0.5   # 50% VAT od pojazdu
+        vat_fuel = 0.5      # 50% VAT od paliwa/energii
+        vat_ekspl = 0.5     # 50% VAT od eksploatacji
+    else:  # prywatne
+        return {"total": 0, "vat_vehicle": 0, "vat_fuel_annual": 0, "vat_ekspl_annual": 0,
+                "kup_annual": 0, "pit_annual": 0, "limit": limit, "kup_pct": 0,
+                "vat_fuel_pct": 0, "vat_vehicle_pct": 0, "breakdown": {}}
+
+    # --- VAT od zakupu pojazdu (jednorazowo) ---
+    price_for_vat = min(vehicle_price, limit)
+    vat_vehicle_total = price_for_vat * 0.23 / 1.23 * vat_vehicle  # VAT zawarty w cenie brutto
+
+    # --- VAT od paliwa / energii (rocznie) ---
+    vat_fuel_annual = annual_fuel_cost * 0.23 / 1.23 * vat_fuel
+
+    # --- VAT od eksploatacji: ubezpieczenie (brak VAT), serwis (est. 50% kosztów) ---
+    est_maint_annual = annual_fuel_cost * 0.3  # przybliżenie serwisu
+    vat_ekspl_annual = est_maint_annual * 0.23 / 1.23 * vat_ekspl
+
+    # --- KUP: koszty w podatku dochodowym ---
+    annual_lease_netto = vehicle_price / period_years  # rata leasingowa (uproszczone)
+    lease_in_kup = min(annual_lease_netto, limit / period_years) * kup_pct
+    fuel_in_kup = annual_fuel_cost * kup_pct
+    insurance_in_kup = insurance_annual * kup_pct
+    kup_annual = lease_in_kup + fuel_in_kup + insurance_in_kup
+    pit_annual = kup_annual * tax_rate
+
+    # --- Suma ---
+    total_vat = vat_vehicle_total + (vat_fuel_annual + vat_ekspl_annual) * period_years
+    total_pit = pit_annual * period_years
+    total = total_vat + total_pit
+
+    breakdown = {
+        "VAT od zakupu (jednorazowo)": vat_vehicle_total,
+        f"VAT od {'energii' if is_bev else 'paliwa'} (rocznie)": vat_fuel_annual,
+        "VAT od eksploatacji (rocznie)": vat_ekspl_annual,
+        "PIT/CIT – KUP rata leasingu (rocznie)": lease_in_kup * tax_rate,
+        f"PIT/CIT – KUP {'energia' if is_bev else 'paliwo'} (rocznie)": fuel_in_kup * tax_rate,
+        "PIT/CIT – KUP ubezpieczenie (rocznie)": insurance_in_kup * tax_rate,
+    }
+
+    return {
+        "total": total,
+        "vat_vehicle": vat_vehicle_total,
+        "vat_fuel_annual": vat_fuel_annual,
+        "vat_ekspl_annual": vat_ekspl_annual,
+        "kup_annual": kup_annual,
+        "pit_annual": pit_annual,
+        "limit": limit,
+        "kup_pct": kup_pct,
+        "vat_fuel_pct": vat_fuel,
+        "vat_vehicle_pct": vat_vehicle,
+        "breakdown": breakdown,
+    }
 
 
 def calculate_depreciation(vehicle_price, segment_idx, period_years, engine_type, is_new):
@@ -579,9 +664,10 @@ def calculate_tco_quick(
     et = fa * period_years
     mt = calculate_maintenance_cost(seg, total_km, engine_type, is_new)["total"]
     ins = estimate_insurance(vehicle_price, engine_type) * period_years
-    tx = calculate_tax_shield(vehicle_price, engine_type, fa,
-                              estimate_insurance(vehicle_price, engine_type),
-                              period_years, tax_rate) if use_tax else 0
+    tx_data = calculate_tax_shield(vehicle_price, engine_type, fa,
+                                   estimate_insurance(vehicle_price, engine_type),
+                                   period_years, tax_rate) if use_tax else None
+    tx = tx_data["total"] if tx_data else 0
     dep = calculate_depreciation(vehicle_price, seg, period_years, engine_type, is_new)
     rv = vehicle_price - dep  # residual value
     tco = vehicle_price + et + mt + ins - tx
@@ -822,11 +908,40 @@ else:
     ac_pub_price = 1.95
 
 st.subheader("Parametry podatkowe")
-col7, col8 = st.columns(2)
+col7, col8, col9 = st.columns(3)
 with col7:
-    use_tax_shield = st.checkbox("Uwzględnij tarczę podatkową 2026 (firma/leasing)", value=True)
+    use_tax_shield = st.checkbox("Uwzględnij tarczę podatkową 2026", value=True)
 with col8:
     tax_rate = st.selectbox("Stawka podatku", [0.12, 0.19, 0.32], index=1, format_func=lambda x: f"{x:.0%}")
+with col9:
+    usage_type = st.selectbox(
+        "Użytkowanie pojazdu",
+        ["firmowe", "mieszane", "prywatne"],
+        index=0,
+        format_func=lambda x: {"firmowe": "Firmowe 100%", "mieszane": "Mieszane 75%", "prywatne": "Prywatne"}[x],
+        help="Firmowe: 100% VAT (BEV) / 50% VAT paliwo (ICE), 100% KUP. "
+             "Mieszane: 50% VAT, 75% KUP. Prywatne: brak odliczeń.",
+        disabled=not use_tax_shield,
+    )
+if use_tax_shield:
+    with st.expander("Limity podatkowe 2026 – ICE vs BEV"):
+        ct1, ct2 = st.columns(2)
+        with ct1:
+            st.markdown(
+                "**ICE (spalinowe)**\n"
+                "- Limit leasingu: **100 000 zł** netto\n"
+                "- VAT od paliwa: **50%** (firmowe i mieszane)\n"
+                "- VAT od zakupu: 100% firm. / 50% mieszane (do limitu)\n"
+                "- KUP: 100% firmowe / 75% mieszane"
+            )
+        with ct2:
+            st.markdown(
+                "**BEV (elektryczne)**\n"
+                "- Limit leasingu: **225 000 zł** netto\n"
+                "- VAT od energii: **100%** (firmowe) / 50% mieszane\n"
+                "- VAT od zakupu: 100% firm. / 50% mieszane (do limitu)\n"
+                "- KUP: 100% firmowe / 75% mieszane"
+            )
 
 # ---------------------------------------------------------------------------
 # PODGLĄD WPŁYWU TEMPERATURY
@@ -879,11 +994,14 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
     insurance_ice = estimate_insurance(vehicle_price_ice, "ICE") * period_years
 
     tax_shield_ice = 0.0
+    tax_data_ice = None
     if use_tax_shield:
-        tax_shield_ice = calculate_tax_shield(
+        tax_data_ice = calculate_tax_shield(
             vehicle_price_ice, "ICE", fuel_cost_annual,
-            estimate_insurance(vehicle_price_ice, "ICE"), period_years, tax_rate
+            estimate_insurance(vehicle_price_ice, "ICE"), period_years, tax_rate,
+            usage_type=usage_type,
         )
+        tax_shield_ice = tax_data_ice["total"]
 
     tco_ice = vehicle_price_ice + fuel_cost_total + maint_ice + insurance_ice - tax_shield_ice
     rv_ice = vehicle_price_ice - depreciation_ice  # wartość rezydualna
@@ -917,17 +1035,20 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
     energy_cost_annual = charging_result["total_cost"]
     energy_cost_total = energy_cost_annual * period_years
 
-    maint_bev_data = calculate_maintenance_cost(segment_idx_bev, total_mileage, "BEV", is_new)
+    maint_bev_data = calculate_maintenance_cost(segment_idx_bev, total_mileage, "BEV", is_new, brand=bev_model)
     maint_bev = maint_bev_data["total"]
     depreciation_bev = calculate_depreciation(vehicle_price_bev, segment_idx_bev, period_years, "BEV", is_new)
     insurance_bev = estimate_insurance(vehicle_price_bev, "BEV") * period_years
 
     tax_shield_bev = 0.0
+    tax_data_bev = None
     if use_tax_shield:
-        tax_shield_bev = calculate_tax_shield(
+        tax_data_bev = calculate_tax_shield(
             vehicle_price_bev, "BEV", energy_cost_annual,
-            estimate_insurance(vehicle_price_bev, "BEV"), period_years, tax_rate
+            estimate_insurance(vehicle_price_bev, "BEV"), period_years, tax_rate,
+            usage_type=usage_type,
         )
+        tax_shield_bev = tax_data_bev["total"]
 
     tco_bev = vehicle_price_bev + energy_cost_total + maint_bev + insurance_bev - tax_shield_bev
     rv_bev = vehicle_price_bev - depreciation_bev  # wartość rezydualna
@@ -980,6 +1101,28 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
             c2.metric("Tarcza podatkowa", f"-{tax_shield_bev:,.0f} zł")
             c3.metric("TCO netto (po sprzedaży)", f"{tco_net_bev:,.0f} zł",
                        help="TCO brutto − wartość rezydualna = realny koszt posiadania")
+
+        # --- Rozbicie tarczy podatkowej ---
+        if use_tax_shield and tax_data_ice and tax_data_bev and usage_type != "prywatne":
+            with st.expander("Rozbicie tarczy podatkowej – ICE vs BEV"):
+                tc1, tc2 = st.columns(2)
+                with tc1:
+                    st.markdown(f"**{ice_model}** (limit: **{tax_data_ice['limit']:,.0f} zł**)")
+                    for label, val in tax_data_ice["breakdown"].items():
+                        if val > 0:
+                            st.markdown(f"- {label}: **{val:,.0f} zł**")
+                    st.markdown(f"- **SUMA tarcza: {tax_shield_ice:,.0f} zł** za {period_years} lata")
+                    st.caption(f"VAT paliwo: {tax_data_ice['vat_fuel_pct']:.0%} | KUP: {tax_data_ice['kup_pct']:.0%}")
+                with tc2:
+                    st.markdown(f"**{bev_model}** (limit: **{tax_data_bev['limit']:,.0f} zł**)")
+                    for label, val in tax_data_bev["breakdown"].items():
+                        if val > 0:
+                            st.markdown(f"- {label}: **{val:,.0f} zł**")
+                    st.markdown(f"- **SUMA tarcza: {tax_shield_bev:,.0f} zł** za {period_years} lata")
+                    st.caption(f"VAT energia: {tax_data_bev['vat_fuel_pct']:.0%} | KUP: {tax_data_bev['kup_pct']:.0%}")
+                adv = tax_shield_bev - tax_shield_ice
+                if adv > 0:
+                    st.success(f"BEV ma o **{adv:,.0f} zł** większą tarczę podatkową (wyższy limit + 100% VAT od energii)")
 
         st.markdown("---")
         col_a, col_b, col_c = st.columns(3)
@@ -1222,6 +1365,32 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
                 f"+{bev_temp_penalty_pct:.1f}%",
             ],
         })
+        # Dodaj wiersze podatkowe jeśli aktywne
+        if use_tax_shield and tax_data_ice and tax_data_bev:
+            tax_rows = pd.DataFrame({
+                "Kategoria": [
+                    "",
+                    "Limit leasingu",
+                    "VAT paliwo/energia",
+                    "KUP (koszty uzyskania)",
+                    "Użytkowanie pojazdu",
+                ],
+                "ICE": [
+                    "",
+                    f"{tax_data_ice['limit']:,.0f} zł",
+                    f"{tax_data_ice['vat_fuel_pct']:.0%}",
+                    f"{tax_data_ice['kup_pct']:.0%}",
+                    usage_type,
+                ],
+                "BEV": [
+                    "",
+                    f"{tax_data_bev['limit']:,.0f} zł",
+                    f"{tax_data_bev['vat_fuel_pct']:.0%}",
+                    f"{tax_data_bev['kup_pct']:.0%}",
+                    usage_type,
+                ],
+            })
+            df_detail = pd.concat([df_detail, tax_rows], ignore_index=True)
 
         st.dataframe(df_detail, use_container_width=True, hide_index=True)
 
@@ -1264,6 +1433,9 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
                     hide_index=True, use_container_width=True,
                 )
                 st.caption(f"Koszt serwisowy: {maint_bev_data['per_km']:.2f} zł/km")
+                if maint_bev_data.get("tesla_warranty"):
+                    st.info(f"Tesla: gwarancja na zawieszenie i hamulce do {TESLA_WARRANTY_KM:,} km – "
+                            f"brak kosztów tych komponentów w okresie gwarancyjnym.")
 
         # Pie chart serwisowy
         fig_maint = make_subplots(
@@ -1446,7 +1618,7 @@ elif "Punkt zwrotny" in opt_mode:
             maint_ice_rate = calculate_maintenance_cost(
                 segment_idx_ice, 100_000, "ICE", is_new)["per_km"]
             maint_bev_rate = calculate_maintenance_cost(
-                segment_idx_bev, 100_000, "BEV", is_new)["per_km"]
+                segment_idx_bev, 100_000, "BEV", is_new, brand=bev_model)["per_km"]
 
             dem_ref, _ = calc_annual_consumption_bev(
                 bev_city_kwh, bev_highway_kwh, city_pct, mkm_ref)
