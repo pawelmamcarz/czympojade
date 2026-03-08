@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "20"
+APP_VERSION = "21"
 
 import streamlit as st
 import numpy as np
@@ -193,9 +193,9 @@ G14_DIST_BY_HOUR = (
 # GreenWay 2026 – plany abonamentowe DC
 # ---------------------------------------------------------------------------
 GREENWAY_PLANS = {
-    "Standard": {"monthly_fee": 0.00, "dc_per_kwh": 3.15},
-    "Plus":     {"monthly_fee": 29.99, "dc_per_kwh": 2.40},
-    "Max":      {"monthly_fee": 79.99, "dc_per_kwh": 2.10},
+    "Standard": {"monthly_fee": 0.00,  "ac_per_kwh": 2.05, "dc_per_kwh": 3.25},
+    "Plus":     {"monthly_fee": 29.99, "ac_per_kwh": 1.75, "dc_per_kwh": 2.40},
+    "Max":      {"monthly_fee": 79.99, "ac_per_kwh": 1.60, "dc_per_kwh": 2.10},
 }
 
 # ---------------------------------------------------------------------------
@@ -211,6 +211,53 @@ IONITY_PLANS = {
 # Pompa ciepła (PC) – szacunkowe roczne zużycie prądu
 # ---------------------------------------------------------------------------
 HEAT_PUMP_ANNUAL_KWH = 4500  # typowa PC w domu 100-140 m², COP ~3.5
+
+# ---------------------------------------------------------------------------
+# LPG – dodatkowe koszty dual-fuel
+# Źródła: motoryzacja.interia.pl, taxiskorpion.pl, agplus.pl, dobrymechanik.pl
+# ---------------------------------------------------------------------------
+LPG_BENZYNA_PCT = 0.10          # 10% jazdy na benzynie (start, krótkie dystanse)
+LPG_CONSUMPTION_MULT = 1.15     # 15% wyższe spalanie na LPG vs benzyna
+LPG_INSTALL_COST_NEW = 4_500    # Koszt instalacji LPG (nowe auto)
+LPG_INSTALL_COST_USED = 3_500   # Instalacja LPG (używane auto)
+LPG_MAINTENANCE_FACTOR = 1.20   # 20% wyższe koszty serwisowe (bazowe ICE)
+LPG_ANNUAL_SERVICE = 500        # Roczny przegląd instalacji LPG + regulacja
+LPG_FILTER_REPLACE_KM = 15_000  # Wymiana filtrów gazu co 10-20k km (średnio 15k)
+LPG_FILTER_COST = 120           # Koszt wymiany filtrów (faza ciekła + lotna)
+LPG_SPARK_PLUG_KM = 35_000      # Świece zapłonowe – skrócony interwał ~30% vs benzyna
+LPG_SPARK_PLUG_COST = 300       # Koszt wymiany świec (200-400 zł)
+LPG_INJECTOR_KM = 70_000        # Wtryskiwacze LPG – średnia żywotność (30-100k km)
+LPG_INJECTOR_COST = 700         # Koszt wymiany wtryskiwaczy (400-1500 zł)
+LPG_VALVE_DAMAGE_KM = 115_000   # Wypalone zawory/gniazda – typowo po 80-150k km
+LPG_VALVE_DAMAGE_COST = 1_500   # Naprawa zaworów (głowica)
+LPG_CONTROLLER_KM = 70_000      # Sterownik instalacji – żywotność 40-100k km
+LPG_CONTROLLER_COST = 1_000     # Koszt wymiany sterownika
+LPG_REDUCER_KM = 140_000        # Reduktor LPG – żywotność 80-200k km
+LPG_REDUCER_COST = 775          # Koszt wymiany reduktora (350-1200 zł)
+LPG_HOSES_KM = 100_000          # Przewody elastyczne – wymiana co ~100k km
+LPG_HOSES_COST = 150            # Koszt wymiany przewodów
+LPG_FUEL_PUMP_KM = 150_000      # Pompa benzyny – przyspieszone zużycie (praca "na sucho")
+LPG_FUEL_PUMP_COST = 700        # Koszt wymiany pompy (400-1000 zł)
+
+# ---------------------------------------------------------------------------
+# Pro Tier – feature gating
+# ---------------------------------------------------------------------------
+IS_PRO = False  # True = wersja Pro (płatna)
+
+# ---------------------------------------------------------------------------
+# Podlicznik (submetering) – koszt instalacji
+# ---------------------------------------------------------------------------
+SUBMETER_COST = 2_500  # Koszt instalacji podlicznika + legalizacja
+
+# ---------------------------------------------------------------------------
+# Tarcza cenowa – cap na dynamiczną taryfę
+# ---------------------------------------------------------------------------
+DYNAMIC_PRICE_CAP = 0.42  # Max średnia miesięczna = taryfa G11
+
+# ---------------------------------------------------------------------------
+# Mój Prąd 6.0 – dotacja PV+BESS
+# ---------------------------------------------------------------------------
+MOJ_PRAD_6_MAX = 28_000  # Maks. dotacja Mój Prąd 6.0 (PV+BESS)
 
 
 # ---------------------------------------------------------------------------
@@ -334,10 +381,12 @@ def calc_annual_consumption_bev(
 def calc_annual_fuel_ice(
     city_l: float, highway_l: float, road_split: tuple,
     monthly_km: np.ndarray, fuel_price: float,
+    fuel_type_idx: int = 0, pb95_price: float = 0,
 ) -> tuple[float, float, np.ndarray]:
     """Zwraca (roczne litry, roczny koszt PLN, tablica 12 miesięcznych litrów).
 
     road_split: (miasto%, krajowa%, autostrada%) — znormalizowane do 1.0
+    fuel_type_idx: 0=PB95, 1=ON, 2=LPG (dual-fuel: 10% benzyna + 90% LPG)
     """
     pct_c, pct_r, pct_h = road_split
     monthly_liters = np.zeros(12)
@@ -350,7 +399,15 @@ def calc_annual_fuel_ice(
             + pct_h * highway_l * mh * HIGHWAY_SPEED_MULTIPLIER_ICE
         )
     total_liters = float(monthly_liters.sum())
-    return total_liters, total_liters * fuel_price, monthly_liters
+
+    if fuel_type_idx == 2:  # LPG dual-fuel
+        # LPG: wyższe spalanie × 1.15, 90% na LPG, 10% na benzynie
+        lpg_liters = total_liters * (1 - LPG_BENZYNA_PCT) * LPG_CONSUMPTION_MULT
+        pb_liters = total_liters * LPG_BENZYNA_PCT
+        cost = lpg_liters * fuel_price + pb_liters * (pb95_price if pb95_price > 0 else 6.50)
+        return total_liters, cost, monthly_liters
+    else:
+        return total_liters, total_liters * fuel_price, monthly_liters
 
 
 # ---------------------------------------------------------------------------
@@ -542,21 +599,28 @@ def optimize_charging(
     annual_mileage_km: float,
     dc_price: float = 1.60,
     ac_pub_price: float = 1.95,
+    has_submeter: bool = False,
+    has_price_cap: bool = False,
 ) -> dict:
     """Optymalizuje roczny harmonogram ładowania BEV za pomocą HiGHS LP.
 
     Model: 288 slotów (12 miesięcy × 24h reprezentatywnego dnia).
     HiGHS minimalizuje koszt energii, NIE liczy TCO – to tylko jedna składowa.
+    has_submeter: EV na podliczniku (dynamiczna taryfa), dom na G11 (stała).
+    has_price_cap: tarcza cenowa — max średnia miesięczna ≤ G11.
     """
     PRICE_SUC = dc_price
     PRICE_AC_PUB = ac_pub_price
     PRICE_BESS_CYCLE = 0.02
     PV_SELF_COST = 0.0
 
+    # Podlicznik: EV na dynamicznej taryfie nawet gdy dom na stałej
+    _effective_dynamic = has_dynamic_tariff or has_submeter
+
     # Opłata dystrybucyjna wg pory dnia (G14dynamic lub stała)
     if has_old_pv and pv_kwp > 0:
         dist_fees_24 = [0.08] * 24
-    elif has_dynamic_tariff:
+    elif _effective_dynamic:
         dist_fees_24 = list(G14_DIST_BY_HOUR)
     else:
         dist_fees_24 = [0.30] * 24
@@ -590,6 +654,8 @@ def optimize_charging(
             "pct_grid": 0, "pct_pv": 0, "pct_bess": 0,
             "pct_suc": 60, "pct_ac_pub": 40,
             "negative_hours_used": 0,
+            "price_cap_applied": False, "avg_price_before_cap": 0,
+            "has_submeter": False,
         }
 
     rng = np.random.default_rng(42)
@@ -621,7 +687,7 @@ def optimize_charging(
             if rng.random() < 0.15:
                 price = rng.uniform(-0.10, -0.01)
 
-        if not has_dynamic_tariff:
+        if not _effective_dynamic:
             price = 0.42
 
         tariff[s] = price
@@ -634,6 +700,25 @@ def optimize_charging(
             elif m in (2, 10):     season = 0.35
             else:                  season = 0.20
             pv_avail[s] = pv_kwp * solar * season * 0.85
+
+    # Tarcza cenowa: cap średniej miesięcznej ≤ G11
+    price_cap_applied = False
+    avg_price_before_cap = float(np.mean([t for t in tariff if t > 0])) if any(t > 0 for t in tariff) else 0
+    if has_price_cap and _effective_dynamic:
+        for m_idx in range(MONTHS):
+            m_start = m_idx * HPD
+            m_end = m_start + HPD
+            m_prices = tariff[m_start:m_end]
+            pos_prices = [p for p in m_prices if p > 0]
+            if pos_prices:
+                m_avg = np.mean(pos_prices)
+                if m_avg > DYNAMIC_PRICE_CAP:
+                    scale = DYNAMIC_PRICE_CAP / m_avg
+                    for s_idx in range(m_start, m_end):
+                        if tariff[s_idx] > 0:
+                            tariff[s_idx] *= scale
+                    price_cap_applied = True
+            # Ujemne ceny: zachować bez zmian
 
     solver = highspy.Highs()
     solver.silent()
@@ -697,8 +782,8 @@ def optimize_charging(
         avg_dist = sum(dist_fees_24) / 24
         avg_price = float(np.mean(tariff)) + avg_dist
         fallback = home_kwh * avg_price
-        total_e = home_kwh + suc_kwh + ac_pub_kwh
-        pct_fn = lambda p: 100 * p / total_e if total_e > 0 else 0
+        total_e = float(np.sum(home_kwh) + suc_kwh + ac_pub_kwh)
+        pct_fn = lambda p: 100 * float(np.sum(p)) / total_e if total_e > 0 else 0
         return {
             "total_cost": fallback + suc_cost + ac_pub_cost,
             "grid_cost": fallback, "pv_cost": 0, "bess_cost": 0,
@@ -706,6 +791,9 @@ def optimize_charging(
             "pct_grid": pct_fn(home_kwh), "pct_pv": 0, "pct_bess": 0,
             "pct_suc": pct_fn(suc_kwh), "pct_ac_pub": pct_fn(ac_pub_kwh),
             "negative_hours_used": 0, "solver_status": str(status),
+            "price_cap_applied": price_cap_applied,
+            "avg_price_before_cap": avg_price_before_cap,
+            "has_submeter": has_submeter,
         }
 
     sol = solver.getSolution()
@@ -739,6 +827,9 @@ def optimize_charging(
         "pct_bess": pct_fn(bess_dis_e),
         "pct_suc": pct_fn(suc_kwh), "pct_ac_pub": pct_fn(ac_pub_kwh),
         "negative_hours_used": int(neg_hours), "solver_status": "optimal",
+        "price_cap_applied": price_cap_applied,
+        "avg_price_before_cap": avg_price_before_cap,
+        "has_submeter": has_submeter,
     }
 
 
@@ -750,7 +841,7 @@ TESLA_WARRANTY_KM = 82_000  # Tesla: gwarancja na zawieszenie i hamulce do 82 00
 
 def calculate_maintenance_cost(
     segment_idx: int, mileage_km: float, engine_type: str, is_new: bool,
-    brand: str = "",
+    brand: str = "", fuel_type_idx: int = 0, period_years: int = 5,
 ) -> dict:
     """Zwraca słownik z rozbiciem kosztów serwisowych."""
     discount = NEW_CAR_MAINTENANCE_DISCOUNT if is_new else 1.0
@@ -763,6 +854,8 @@ def calculate_maintenance_cost(
             base_per_km *= HEV_MAINTENANCE_FACTOR
         elif engine_type == "PHEV":
             base_per_km *= PHEV_MAINTENANCE_FACTOR
+        if fuel_type_idx == 2:  # LPG: +20% serwis
+            base_per_km *= LPG_MAINTENANCE_FACTOR
         total_per_km = base_per_km
         total = total_per_km * mileage_km
 
@@ -794,6 +887,29 @@ def calculate_maintenance_cost(
                 "Inne eksploatacja": max(0, total - mileage_km * 0.13 * discount),
             }
         breakdown = {k: max(0, v) for k, v in breakdown.items()}
+        # LPG: dodaj koszty specyficzne dla instalacji gazowej
+        if fuel_type_idx == 2:
+            lpg_filters = (mileage_km / LPG_FILTER_REPLACE_KM) * LPG_FILTER_COST
+            lpg_sparks = (mileage_km / LPG_SPARK_PLUG_KM) * LPG_SPARK_PLUG_COST
+            lpg_injectors = (mileage_km / LPG_INJECTOR_KM) * LPG_INJECTOR_COST
+            lpg_valves = (mileage_km / LPG_VALVE_DAMAGE_KM) * LPG_VALVE_DAMAGE_COST
+            lpg_controller = (mileage_km / LPG_CONTROLLER_KM) * LPG_CONTROLLER_COST
+            lpg_reducer = (mileage_km / LPG_REDUCER_KM) * LPG_REDUCER_COST
+            lpg_hoses = (mileage_km / LPG_HOSES_KM) * LPG_HOSES_COST
+            lpg_pump = (mileage_km / LPG_FUEL_PUMP_KM) * LPG_FUEL_PUMP_COST
+            lpg_service = LPG_ANNUAL_SERVICE * period_years
+            breakdown["Filtry gazu LPG"] = lpg_filters
+            breakdown["Świece zapłonowe (skrócony interwał)"] = lpg_sparks
+            breakdown["Wtryskiwacze LPG"] = lpg_injectors
+            breakdown["Zawory / gniazda zaworowe"] = lpg_valves
+            breakdown["Sterownik + czujniki LPG"] = lpg_controller
+            breakdown["Reduktor LPG"] = lpg_reducer
+            breakdown["Przewody + pompa benzyny"] = lpg_hoses + lpg_pump
+            breakdown["Przegląd instalacji LPG (roczny)"] = lpg_service
+            lpg_extra = (lpg_filters + lpg_sparks + lpg_injectors + lpg_valves
+                         + lpg_controller + lpg_reducer + lpg_hoses + lpg_pump + lpg_service)
+            total += lpg_extra
+            total_per_km = total / mileage_km if mileage_km > 0 else total_per_km
         return {"total": total, "per_km": total_per_km, "breakdown": breakdown}
     else:  # BEV
         min_c, max_c = BEV_MAINTENANCE_COST_PER_KM
@@ -1118,31 +1234,40 @@ def calculate_tco_quick(
     has_dynamic_tariff=True, has_old_pv=False, suc_distance=30,
     use_tax=True, tax_rate=0.19, leasing=None,
     elec_pct=0,  # PHEV: % jazdy na prądzie
+    fuel_type_idx=0,  # 0=PB95, 1=ON, 2=LPG
+    pb95_price=0,  # Cena benzyny (dla LPG dual-fuel)
+    has_submeter=False,  # Podlicznik EV
+    has_price_cap=False,  # Tarcza cenowa
 ) -> dict:
     """Szybkie obliczenie TCO dla optymalizatora (HiGHS LP wewnątrz dla BEV/PHEV)."""
     seg = price_to_segment(vehicle_price)
     total_km = annual_mileage * period_years
     mkm = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
     if engine_type in ("ICE", "HEV"):
-        _, fa, _ = calc_annual_fuel_ice(city_l, highway_l, road_split, mkm, fuel_price)
+        _, fa, _ = calc_annual_fuel_ice(city_l, highway_l, road_split, mkm, fuel_price,
+                                        fuel_type_idx=fuel_type_idx, pb95_price=pb95_price)
     elif engine_type == "PHEV":
         # Split: fuel portion + electric portion
         mkm_fuel = mkm * (1 - elec_pct)
         mkm_elec = mkm * elec_pct
-        _, fa_fuel, _ = calc_annual_fuel_ice(city_l, highway_l, road_split, mkm_fuel, fuel_price)
+        _, fa_fuel, _ = calc_annual_fuel_ice(city_l, highway_l, road_split, mkm_fuel, fuel_price,
+                                              fuel_type_idx=fuel_type_idx, pb95_price=pb95_price)
         dem_e, _ = calc_annual_consumption_bev(city_kwh, highway_kwh, road_split, mkm_elec)
         ch_e = optimize_charging(dem_e, battery_cap, pv_kwp, bess_kwh,
                                  has_home_charger, has_dynamic_tariff, has_old_pv,
-                                 suc_distance, annual_mileage * elec_pct)
+                                 suc_distance, annual_mileage * elec_pct,
+                                 has_submeter=has_submeter, has_price_cap=has_price_cap)
         fa = fa_fuel + ch_e["total_cost"]
     else:  # BEV
         dem, _ = calc_annual_consumption_bev(city_kwh, highway_kwh, road_split, mkm)
         ch = optimize_charging(dem, battery_cap, pv_kwp, bess_kwh,
                                has_home_charger, has_dynamic_tariff, has_old_pv,
-                               suc_distance, annual_mileage)
+                               suc_distance, annual_mileage,
+                               has_submeter=has_submeter, has_price_cap=has_price_cap)
         fa = ch["total_cost"]
     et = fa * period_years
-    mt = calculate_maintenance_cost(seg, total_km, engine_type, is_new)["total"]
+    mt = calculate_maintenance_cost(seg, total_km, engine_type, is_new,
+                                    fuel_type_idx=fuel_type_idx, period_years=period_years)["total"]
     ins = estimate_insurance(vehicle_price, engine_type) * period_years
     tx_data = calculate_tax_shield(vehicle_price, engine_type, fa,
                                    estimate_insurance(vehicle_price, engine_type),
@@ -1181,6 +1306,30 @@ if HAS_MARKET_DB:
             pass
         return True
     _daily_market_scrape()
+
+# KROK 0: Profil kierowcy — Question Zero
+st.header("0. Kim jesteś?")
+_profile_options = [f"{CLUSTER_NAMES[i][0]} – {CLUSTER_NAMES[i][1]}" for i in range(6)]
+_selected_profile = st.selectbox(
+    "Wybierz swój profil kierowcy",
+    _profile_options, index=0,
+    help="Profil wpływa na domyślne wartości parametrów. "
+         "Możesz zmienić dowolną wartość ręcznie poniżej.",
+)
+_profile_id = _profile_options.index(_selected_profile)
+_profile_name = CLUSTER_NAMES[_profile_id][0]
+st.caption(f"🚗 Profil: **{_profile_name}** — {CLUSTER_NAMES[_profile_id][1]}")
+
+# Domyślne wartości na podstawie profilu
+_PROFILE_DEFAULTS = {
+    0: {"mileage": 12_000, "city_pct": 0.75},    # Miejski Commuter
+    1: {"mileage": 18_000, "city_pct": 0.50},    # Rodzinny Podmiejski
+    2: {"mileage": 35_000, "city_pct": 0.30},    # Firmowy Flota
+    3: {"mileage": 15_000, "city_pct": 0.45},    # Eco-Prosument
+    4: {"mileage": 45_000, "city_pct": 0.20},    # Long-Distance Traveler
+    5: {"mileage": 8_000, "city_pct": 0.70},     # Weekend Driver
+}
+_pdef = _PROFILE_DEFAULTS[_profile_id]
 
 # KROK 1: Dane pojazdu
 st.header("1. Twoje pojazdy")
@@ -1223,6 +1372,11 @@ ICE_PRESETS_NEW = {
         "Audi A4 40 TFSI": {"price": 215_000, "city_l": 8.0, "hwy_l": 6.0, "fuel": 0},
         "Volvo S60 B4": {"price": 210_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 0},
     },
+    "V8 🏎️": {
+        "Ford Mustang GT 5.0 V8": {"price": 270_000, "city_l": 15.0, "hwy_l": 10.0, "fuel": 0},
+        "Jeep Wrangler Rubicon 392": {"price": 350_000, "city_l": 16.0, "hwy_l": 12.0, "fuel": 0},
+        "Dodge Challenger R/T 5.7": {"price": 300_000, "city_l": 16.0, "hwy_l": 11.0, "fuel": 0},
+    },
 }
 ICE_PRESETS_USED = {
     "A – Mini": {
@@ -1253,6 +1407,13 @@ ICE_PRESETS_USED = {
         "BMW 320d F30 2018": {"price": 75_000, "city_l": 8.0, "hwy_l": 5.5, "fuel": 1},
         "Mercedes C 220d W205 2019": {"price": 95_000, "city_l": 7.5, "hwy_l": 5.5, "fuel": 1},
         "Audi A4 2.0 TDI B9 2019": {"price": 85_000, "city_l": 7.5, "hwy_l": 5.5, "fuel": 1},
+    },
+    "V8 🏎️": {
+        "Audi A8 4.2 V8 D3 2008": {"price": 28_000, "city_l": 16.0, "hwy_l": 11.0, "fuel": 2},
+        "BMW 540i E60 V8 2007": {"price": 25_000, "city_l": 15.0, "hwy_l": 10.5, "fuel": 2},
+        "Mercedes S500 W221 2010": {"price": 55_000, "city_l": 16.0, "hwy_l": 11.5, "fuel": 0},
+        "Toyota Land Cruiser V8 4.5D 2012": {"price": 180_000, "city_l": 14.0, "hwy_l": 10.0, "fuel": 1},
+        "Ford Mustang GT 5.0 V8 2018": {"price": 130_000, "city_l": 15.0, "hwy_l": 10.0, "fuel": 2},
     },
 }
 BEV_PRESETS_NEW = {
@@ -1491,6 +1652,12 @@ with col_ice:
         ["Benzyna (PB95)", "Diesel (ON)", "LPG"],
         index=ice_p["fuel"],
     )
+    fuel_type_idx = ["Benzyna (PB95)", "Diesel (ON)", "LPG"].index(fuel_type)
+    if fuel_type_idx == 2:
+        st.caption(
+            "⛽ LPG dual-fuel: 90% na gazie + 10% na benzynie. "
+            "Wyższe spalanie (+15%), dodatkowe koszty serwisowe instalacji gazowej."
+        )
 
 with col_hyb:
     st.subheader("Hybryda (HEV / PHEV)")
@@ -1697,7 +1864,7 @@ col1, col2 = st.columns(2)
 with col1:
     annual_mileage = st.number_input(
         "Roczny przebieg (km)", min_value=5000, max_value=200_000,
-        value=_qp_km if _qp_km >= 5000 else 30_000, step=5000,
+        value=_qp_km if _qp_km >= 5000 else _pdef["mileage"], step=5000,
     )
     # Domyślny okres = max okres leasingu (jeśli aktywny)
     _default_period = 3
@@ -1714,7 +1881,7 @@ with col2:
     _rs1, _rs2, _rs3 = st.columns(3)
     with _rs1:
         pct_city = st.slider("Miasto (%)", 0, 100,
-                             _qp_city if 0 < _qp_city <= 100 else 50, key="pct_city")
+                             _qp_city if 0 < _qp_city <= 100 else int(_pdef["city_pct"] * 100), key="pct_city")
     with _rs2:
         pct_rural = st.slider("Krajowa (%)", 0, 100,
                               _qp_rural if 0 < _qp_rural <= 100 else 30, key="pct_rural")
@@ -1867,9 +2034,11 @@ if pv_kwp > 0:
     recommended_bess = (20 if has_heat_pump else 0) + (30 if _has_bev else 0)
     if recommended_bess > 0:
         st.info(
-            f"**BESS Advisor:** zalecany magazyn: **{recommended_bess} kWh** "
-            f"({' + '.join(_bess_parts)})"
-            + (f" — masz: {bess_kwh:.0f} kWh" if bess_kwh > 0 else "")
+            f"**💡 Rekomendacja BESS:** ~**{recommended_bess} kWh** "
+            f"({' + '.join(_bess_parts)})\n\n"
+            f"Typowe dzienne zużycie domu z PC + BEV: ~50 kWh. "
+            f"BESS pozwala przesunąć ładowanie do tanich godzin nocnych i PV."
+            + (f"\n\nObecna konfiguracja: **{bess_kwh:.0f} kWh**" if bess_kwh > 0 else "")
         )
 
 # Szacunkowe zużycie prądu w domu (PC + BEV)
@@ -1923,6 +2092,54 @@ with col6:
         "Odległość do Superchargera (km)", min_value=0, max_value=500, value=30, step=5
     )
 
+# --- Pro features: Podlicznik / Tarcza / Mój Prąd ---
+if has_dynamic_tariff:
+    with st.expander("⚡ Zaawansowane opcje energetyczne" + (" 🔒" if not IS_PRO else "")):
+        _pro_c1, _pro_c2, _pro_c3 = st.columns(3)
+        with _pro_c1:
+            if IS_PRO:
+                has_submeter = st.checkbox(
+                    "Podlicznik dedykowany dla EV",
+                    value=False,
+                    help="Dom na taryfie G11 (stała cena), EV na taryfie dynamicznej. "
+                         "Chroni przed karami za szczyty na urządzeniach domowych. "
+                         f"Koszt instalacji: {SUBMETER_COST:,} zł.",
+                )
+            else:
+                st.checkbox("🔒 Podlicznik dedykowany dla EV", value=False, disabled=True,
+                            help="Funkcja dostępna w wersji Pro")
+                has_submeter = False
+        with _pro_c2:
+            if IS_PRO:
+                has_price_cap = st.checkbox(
+                    "Tarcza cenowa (cap ≤ G11)",
+                    value=True,
+                    help=f"Max średnia miesięczna cena energii = taryfa G11 ({DYNAMIC_PRICE_CAP} zł/kWh). "
+                         "Ceny ujemne w pełni się liczą. Eliminuje ryzyko 'Texas scenario'.",
+                )
+            else:
+                st.checkbox("🔒 Tarcza cenowa (cap ≤ G11)", value=False, disabled=True,
+                            help="Funkcja dostępna w wersji Pro")
+                has_price_cap = False
+        with _pro_c3:
+            if IS_PRO:
+                has_moj_prad = st.checkbox(
+                    "Dotacja Mój Prąd 6.0",
+                    value=False,
+                    help=f"Dotacja do {MOJ_PRAD_6_MAX:,} zł dla systemów PV + magazyn energii (BESS). "
+                         "Wymaga PV > 0 kWp i BESS > 0 kWh.",
+                )
+            else:
+                st.checkbox("🔒 Dotacja Mój Prąd 6.0", value=False, disabled=True,
+                            help="Funkcja dostępna w wersji Pro")
+                has_moj_prad = False
+        if not IS_PRO:
+            st.caption("🔒 Podlicznik, Tarcza cenowa i Mój Prąd 6.0 — dostępne w wersji **Pro**.")
+else:
+    has_submeter = False
+    has_price_cap = False
+    has_moj_prad = False
+
 # Ładowanie trasowe – widoczne gdy dużo trasy
 highway_pct = pct_rural_n + pct_highway_n
 if highway_pct >= 0.3:
@@ -1937,7 +2154,7 @@ if highway_pct >= 0.3:
             "Preferowana sieć ładowania DC",
             [
                 "Tesla Supercharger (0.70–1.90 zł/kWh, dynamiczne)",
-                "GreenWay (2.10–3.15 zł/kWh, zależy od abo)",
+                "GreenWay (2.10–3.25 zł/kWh, zależy od abo)",
                 "Orlen Charge (2.02–2.39 zł/kWh)",
                 "Ionity (2.05–3.50 zł/kWh, zależy od abo)",
                 "Powerdot (2.48–2.68 zł/kWh)",
@@ -1947,9 +2164,10 @@ if highway_pct >= 0.3:
             ],
             index=0,
             help=(
-                "Ceny 2025/2026 — zakresy uwzględniają abonamenty i moc ładowarki. "
+                "Ceny marzec 2026 — zakresy uwzględniają abonamenty i moc ładowarki. "
                 "Tesla SC: ceny dynamiczne wg lokalizacji/pory. "
-                "GreenWay: Standard 3.15, Plus (29.99 zł/m) 2.40, Max (79.99 zł/m) 2.10. "
+                "GreenWay: Standard DC 3.25 / AC 2.05, Plus (29.99 zł/m) DC 2.40 / AC 1.75, "
+                "Max (79.99 zł/m) DC 2.10 / AC 1.60. "
                 "Ionity: Direct 3.50, Motion (28.50 zł/m) 2.50, Power (51.50 zł/m) 2.05. "
                 "Orlen Charge: zależy od mocy — ≤50 kW: 2.02, 50–125 kW: 2.17, >125 kW: 2.39."
             ),
@@ -2051,8 +2269,10 @@ if st.session_state.get("tco_calculated", False):
     monthly_km = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
 
     # --- ICE ---
+    _pb95_price = fuel_data["pb95"] if fuel_type_idx == 2 else 0
     ice_liters_annual, fuel_cost_annual, ice_monthly_liters = calc_annual_fuel_ice(
         ice_city_l, ice_highway_l, road_split, monthly_km, fuel_price,
+        fuel_type_idx=fuel_type_idx, pb95_price=_pb95_price,
     )
     fuel_cost_total = fuel_cost_annual * period_years
 
@@ -2061,7 +2281,8 @@ if st.session_state.get("tco_calculated", False):
     nominal_ice_liters = annual_mileage / 100 * nominal_ice_l
     ice_temp_penalty_pct = (ice_liters_annual / nominal_ice_liters - 1) * 100 if nominal_ice_liters > 0 else 0
 
-    maint_ice_data = calculate_maintenance_cost(segment_idx_ice, total_mileage, "ICE", is_new_ice)
+    maint_ice_data = calculate_maintenance_cost(segment_idx_ice, total_mileage, "ICE", is_new_ice,
+                                                fuel_type_idx=fuel_type_idx, period_years=period_years)
     maint_ice = maint_ice_data["total"]
     depreciation_ice = calculate_depreciation(vehicle_price_ice, segment_idx_ice, period_years, "ICE", is_new_ice)
     insurance_ice = estimate_insurance(vehicle_price_ice, "ICE") * period_years
@@ -2107,6 +2328,8 @@ if st.session_state.get("tco_calculated", False):
             annual_mileage_km=annual_mileage,
             dc_price=dc_price_custom,
             ac_pub_price=ac_pub_price,
+            has_submeter=has_submeter,
+            has_price_cap=has_price_cap,
         )
 
     energy_cost_annual = charging_result["total_cost"]
@@ -2165,6 +2388,8 @@ if st.session_state.get("tco_calculated", False):
             annual_mileage_km=annual_mileage * hyb_elec_pct,
             dc_price=dc_price_custom,
             ac_pub_price=ac_pub_price,
+            has_submeter=has_submeter,
+            has_price_cap=has_price_cap,
         )
         hyb_energy_cost_annual = hyb_fuel_cost_annual + hyb_charging_result["total_cost"]
     else:
@@ -3142,9 +3367,11 @@ with opt_tab_a:
     if st.button("Znajdź optymalną konfigurację (HiGHS)", key="btn_adv"):
         scenarios = []
         # ICE baseline
+        _a_pb95 = fuel_data["pb95"] if fuel_type_idx == 2 else 0
         r = calculate_tco_quick(
             vehicle_price_ice, "ICE", is_new_ice, annual_mileage, period_years, road_split,
             fuel_price=fuel_price, city_l=ice_city_l, highway_l=ice_highway_l,
+            fuel_type_idx=fuel_type_idx, pb95_price=_a_pb95,
             use_tax=use_tax_shield, tax_rate=tax_rate)
         scenarios.append({"Konfig.": f"🔴 ICE: {ice_model}", "PV": 0, "BESS": 0,
                           "Taryfa": "—", "Inwestycja": 0, "napęd": "ICE", **r})
@@ -3160,6 +3387,7 @@ with opt_tab_a:
             has_home_charger=has_home_charger if hyb_type == "PHEV" else False,
             has_dynamic_tariff=has_dynamic_tariff if hyb_type == "PHEV" else False,
             elec_pct=hyb_elec_pct if hyb_type == "PHEV" else 0,
+            has_submeter=has_submeter, has_price_cap=has_price_cap,
             use_tax=use_tax_shield, tax_rate=tax_rate)
         scenarios.append({"Konfig.": f"🟠 {hyb_type}: {hyb_model}", "PV": 0, "BESS": 0,
                           "Taryfa": "—", "Inwestycja": 0, "napęd": hyb_type, **r_h})
@@ -3182,10 +3410,13 @@ with opt_tab_a:
                         battery_cap=battery_capacity, pv_kwp=pv, bess_kwh=bess,
                         has_home_charger=has_garage, has_dynamic_tariff=dyn,
                         has_old_pv=has_old_pv, suc_distance=suc_distance,
+                        has_submeter=has_submeter, has_price_cap=has_price_cap,
                         use_tax=use_tax_shield, tax_rate=tax_rate)
                     invest = 0
                     if include_invest:
                         invest = pv * PV_COST_PER_KWP + bess * BESS_COST_PER_KWH
+                        if has_moj_prad and pv > 0 and bess > 0:
+                            invest = max(0, invest - MOJ_PRAD_6_MAX)
                     r["tco"] += invest
                     r["monthly"] = r["tco"] / (period_years * 12)
                     r["per_km"] = r["tco"] / (annual_mileage * period_years)
@@ -3262,9 +3493,12 @@ with opt_tab_b:
 
             # ICE reference
             maint_ice_rate = calculate_maintenance_cost(
-                segment_idx_ice, 100_000, "ICE", is_new_ice)["per_km"]
+                segment_idx_ice, 100_000, "ICE", is_new_ice,
+                fuel_type_idx=fuel_type_idx)["per_km"]
+            _bp_pb95 = fuel_data["pb95"] if fuel_type_idx == 2 else 0
             _, ice_fuel_ref, _ = calc_annual_fuel_ice(
-                ice_city_l, ice_highway_l, road_split, mkm_ref, 1.0)
+                ice_city_l, ice_highway_l, road_split, mkm_ref, fuel_price,
+                fuel_type_idx=fuel_type_idx, pb95_price=_bp_pb95)
             ice_l_per_km = ice_fuel_ref / annual_mileage if annual_mileage > 0 else 0.07
             ins_ice_a = estimate_insurance(vehicle_price_ice, "ICE")
 
@@ -3276,7 +3510,8 @@ with opt_tab_b:
             ch_ref = optimize_charging(
                 dem_ref, battery_capacity, pv_kwp, bess_kwh,
                 has_home_charger, has_dynamic_tariff, has_old_pv,
-                suc_distance, annual_mileage)
+                suc_distance, annual_mileage,
+                has_submeter=has_submeter, has_price_cap=has_price_cap)
             bev_energy_per_km = ch_ref["total_cost"] / annual_mileage if annual_mileage > 0 else 0.5
             ins_bev_a = estimate_insurance(vehicle_price_bev, "BEV")
 
@@ -3297,7 +3532,8 @@ with opt_tab_b:
                 ch_h = optimize_charging(
                     dem_h, hyb_bat_cap, pv_kwp, bess_kwh,
                     has_home_charger, has_dynamic_tariff, has_old_pv,
-                    suc_distance, annual_mileage * hyb_elec_pct)
+                    suc_distance, annual_mileage * hyb_elec_pct,
+                    has_submeter=has_submeter, has_price_cap=has_price_cap)
                 hyb_elec_cost_per_km = ch_h["total_cost"] / (annual_mileage * hyb_elec_pct) if annual_mileage > 0 else 0
 
         # Determine which pair to compare
@@ -3450,22 +3686,26 @@ with opt_tab_c:
     _hyb_src = HYB_PRESETS_NEW if _is_fleet_new else HYB_PRESETS_USED
     _bev_src = BEV_PRESETS_NEW if _is_fleet_new else BEV_PRESETS_USED
 
+    _FUEL_NAMES = ["PB95", "ON", "LPG"]
     _fleet_rows = []
     # Add user's selected cars first (segment = "—")
     _fleet_rows.append({"Segment": "—", "Model": ice_model, "Ilość": 1,
                         "Cena (zł)": int(vehicle_price_ice),
-                        "Napęd": "ICE", "Miasto (l)": ice_city_l, "Trasa (l)": ice_highway_l,
+                        "Napęd": "ICE", "Paliwo": _FUEL_NAMES[fuel_type_idx],
+                        "Miasto (l)": ice_city_l, "Trasa (l)": ice_highway_l,
                         "Miasto (kWh)": 0.0, "Trasa (kWh)": 0.0, "Bat (kWh)": 0, "Elec%": 0.0})
     _fleet_rows.append({"Segment": "—", "Model": hyb_model, "Ilość": 1,
                         "Cena (zł)": int(vehicle_price_hyb),
-                        "Napęd": hyb_type, "Miasto (l)": hyb_city_l, "Trasa (l)": hyb_highway_l,
+                        "Napęd": hyb_type, "Paliwo": "PB95",
+                        "Miasto (l)": hyb_city_l, "Trasa (l)": hyb_highway_l,
                         "Miasto (kWh)": hyb_city_kwh if hyb_type == "PHEV" else 0.0,
                         "Trasa (kWh)": hyb_highway_kwh if hyb_type == "PHEV" else 0.0,
                         "Bat (kWh)": hyb_bat_cap if hyb_type == "PHEV" else 0,
                         "Elec%": hyb_elec_pct if hyb_type == "PHEV" else 0.0})
     _fleet_rows.append({"Segment": "—", "Model": bev_model, "Ilość": 1,
                         "Cena (zł)": int(vehicle_price_bev),
-                        "Napęd": "BEV", "Miasto (l)": 0.0, "Trasa (l)": 0.0,
+                        "Napęd": "BEV", "Paliwo": "—",
+                        "Miasto (l)": 0.0, "Trasa (l)": 0.0,
                         "Miasto (kWh)": bev_city_kwh, "Trasa (kWh)": bev_highway_kwh,
                         "Bat (kWh)": int(battery_capacity), "Elec%": 1.0})
     # Add competitors from all selected segments
@@ -3476,21 +3716,24 @@ with opt_tab_c:
             if name not in _used_models:
                 _fleet_rows.append({"Segment": _seg_short, "Model": name, "Ilość": 1,
                                     "Cena (zł)": cfg["price"],
-                                    "Napęd": "ICE", "Miasto (l)": cfg["city_l"], "Trasa (l)": cfg["hwy_l"],
+                                    "Napęd": "ICE", "Paliwo": _FUEL_NAMES[cfg.get("fuel", 0)],
+                                    "Miasto (l)": cfg["city_l"], "Trasa (l)": cfg["hwy_l"],
                                     "Miasto (kWh)": 0.0, "Trasa (kWh)": 0.0, "Bat (kWh)": 0, "Elec%": 0.0})
         for name, cfg in _hyb_src.get(_seg, {}).items():
             if name not in _used_models:
                 ht = cfg.get("hybrid_type", "HEV")
                 _fleet_rows.append({"Segment": _seg_short, "Model": name, "Ilość": 1,
                                     "Cena (zł)": cfg["price"],
-                                    "Napęd": ht, "Miasto (l)": cfg["city_l"], "Trasa (l)": cfg["hwy_l"],
+                                    "Napęd": ht, "Paliwo": _FUEL_NAMES[cfg.get("fuel", 0)],
+                                    "Miasto (l)": cfg["city_l"], "Trasa (l)": cfg["hwy_l"],
                                     "Miasto (kWh)": cfg.get("city_kwh", 0.0), "Trasa (kWh)": cfg.get("hwy_kwh", 0.0),
                                     "Bat (kWh)": cfg.get("bat", 0), "Elec%": cfg.get("elec_pct", 0.0)})
         for name, cfg in _bev_src.get(_seg, {}).items():
             if name not in _used_models:
                 _fleet_rows.append({"Segment": _seg_short, "Model": name, "Ilość": 1,
                                     "Cena (zł)": cfg["price"],
-                                    "Napęd": "BEV", "Miasto (l)": 0.0, "Trasa (l)": 0.0,
+                                    "Napęd": "BEV", "Paliwo": "—",
+                                    "Miasto (l)": 0.0, "Trasa (l)": 0.0,
                                     "Miasto (kWh)": cfg["city_kwh"], "Trasa (kWh)": cfg["hwy_kwh"],
                                     "Bat (kWh)": cfg.get("bat", 60), "Elec%": 1.0})
 
@@ -3503,6 +3746,8 @@ with opt_tab_c:
             "Ilość": st.column_config.NumberColumn(
                 help="Ilość pojazdów do zakupu", min_value=0, max_value=500, step=1, default=1),
             "Napęd": st.column_config.SelectboxColumn(options=["ICE", "HEV", "PHEV", "BEV"]),
+            "Paliwo": st.column_config.SelectboxColumn(
+                options=["PB95", "ON", "LPG", "—"], help="Paliwo: PB95/ON/LPG (ICE/HYB), — (BEV)", width="small"),
             "Cena (zł)": st.column_config.NumberColumn(min_value=5000, max_value=1_000_000, step=5000),
             "Miasto (l)": st.column_config.NumberColumn(
                 help="Spalanie miasto l/100km (ICE/HEV/PHEV)", min_value=0.0, max_value=20.0, step=0.1),
@@ -3538,19 +3783,26 @@ with opt_tab_c:
                 _car_bat = car.get("Bat (kWh)", 60) or 60
                 _car_elec = car.get("Elec%", 0) or 0
                 _car_qty = int(car.get("Ilość", 1) or 1)
+                _car_fuel_str = str(car.get("Paliwo", "PB95") or "PB95")
+                _car_fti = {"PB95": 0, "ON": 1, "LPG": 2}.get(_car_fuel_str, 0)
+                _car_pb95 = fuel_data["pb95"] if _car_fti == 2 else 0
+                _car_fp = {"PB95": fuel_data["pb95"], "ON": fuel_data["on"],
+                           "LPG": fuel_data["lpg"]}.get(_car_fuel_str, fuel_price)
                 if etype in ("ICE", "HEV"):
                     r = calculate_tco_quick(
                         car["Cena (zł)"], etype, _is_fleet_new, annual_mileage,
                         period_years, road_split,
-                        fuel_price=fuel_price,
+                        fuel_price=_car_fp,
                         city_l=car.get("Miasto (l)", 7.0) or 7.0,
                         highway_l=car.get("Trasa (l)", 5.5) or 5.5,
+                        fuel_type_idx=_car_fti, pb95_price=_car_pb95,
+                        has_submeter=has_submeter, has_price_cap=has_price_cap,
                         use_tax=use_tax_shield, tax_rate=tax_rate)
                 elif etype == "PHEV":
                     r = calculate_tco_quick(
                         car["Cena (zł)"], "PHEV", _is_fleet_new, annual_mileage,
                         period_years, road_split,
-                        fuel_price=fuel_price,
+                        fuel_price=_car_fp,
                         city_l=car.get("Miasto (l)", 5.0) or 5.0,
                         highway_l=car.get("Trasa (l)", 5.5) or 5.5,
                         city_kwh=car.get("Miasto (kWh)", 15.0) or 15.0,
@@ -3560,6 +3812,8 @@ with opt_tab_c:
                         has_dynamic_tariff=has_dynamic_tariff,
                         has_old_pv=has_old_pv, suc_distance=suc_distance,
                         elec_pct=_car_elec,
+                        fuel_type_idx=_car_fti, pb95_price=_car_pb95,
+                        has_submeter=has_submeter, has_price_cap=has_price_cap,
                         use_tax=use_tax_shield, tax_rate=tax_rate)
                 else:  # BEV
                     r = calculate_tco_quick(
@@ -3571,6 +3825,7 @@ with opt_tab_c:
                         bess_kwh=bess_kwh, has_home_charger=has_home_charger,
                         has_dynamic_tariff=has_dynamic_tariff,
                         has_old_pv=has_old_pv, suc_distance=suc_distance,
+                        has_submeter=has_submeter, has_price_cap=has_price_cap,
                         use_tax=use_tax_shield, tax_rate=tax_rate)
                 results.append({
                     "Segment": car.get("Segment", "—") or "—",

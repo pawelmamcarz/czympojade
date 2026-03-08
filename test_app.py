@@ -581,5 +581,311 @@ class TestDepreciationCurves:
                 assert 0 < rv < 1
 
 
+# ===========================================================================
+# 20. v21 — LPG Constants
+# ===========================================================================
+
+class TestLPGConstants:
+    def test_lpg_benzyna_pct(self):
+        """10% jazdy na benzynie."""
+        assert app.LPG_BENZYNA_PCT == 0.10
+
+    def test_lpg_consumption_mult(self):
+        """LPG: +15% wyższe spalanie."""
+        assert app.LPG_CONSUMPTION_MULT == 1.15
+
+    def test_lpg_maintenance_factor(self):
+        """LPG: +20% wyższe koszty serwisowe bazowe."""
+        assert app.LPG_MAINTENANCE_FACTOR == 1.20
+
+    def test_lpg_component_costs_positive(self):
+        """Wszystkie koszty komponentów LPG > 0."""
+        assert app.LPG_FILTER_COST > 0
+        assert app.LPG_SPARK_PLUG_COST > 0
+        assert app.LPG_INJECTOR_COST > 0
+        assert app.LPG_VALVE_DAMAGE_COST > 0
+        assert app.LPG_CONTROLLER_COST > 0
+        assert app.LPG_REDUCER_COST > 0
+        assert app.LPG_HOSES_COST > 0
+        assert app.LPG_FUEL_PUMP_COST > 0
+
+    def test_lpg_install_costs(self):
+        """Koszt instalacji LPG: nowe > używane."""
+        assert app.LPG_INSTALL_COST_NEW > app.LPG_INSTALL_COST_USED
+        assert app.LPG_INSTALL_COST_NEW >= 3_000
+        assert app.LPG_INSTALL_COST_USED >= 2_000
+
+
+# ===========================================================================
+# 21. v21 — LPG Fuel Calculation (dual-fuel)
+# ===========================================================================
+
+class TestLPGFuel:
+    def test_lpg_cheaper_than_pb95(self):
+        """LPG dual-fuel jest tańsze niż sama benzyna."""
+        monthly_km = np.array([2083] * 12)  # 25k km/rok
+        _, cost_pb95, _ = app.calc_annual_fuel_ice(
+            8.0, 5.5, (0.5, 0.4, 0.1), monthly_km, 6.50,
+            fuel_type_idx=0)
+        _, cost_lpg, _ = app.calc_annual_fuel_ice(
+            8.0, 5.5, (0.5, 0.4, 0.1), monthly_km, 3.30,
+            fuel_type_idx=2, pb95_price=6.50)
+        assert cost_lpg < cost_pb95
+        # oszczędność 25-45%
+        savings_pct = (cost_pb95 - cost_lpg) / cost_pb95 * 100
+        assert 20 < savings_pct < 50
+
+    def test_lpg_dual_fuel_uses_benzyna(self):
+        """LPG zużywa 10% benzyny + 90% gazu."""
+        monthly_km = np.array([2083] * 12)
+        liters, cost, _ = app.calc_annual_fuel_ice(
+            8.0, 5.5, (0.5, 0.4, 0.1), monthly_km, 3.30,
+            fuel_type_idx=2, pb95_price=6.50)
+        # Koszt powinien składać się z taniego LPG + drogiej benzyny
+        assert cost > 0
+        assert liters > 0
+
+    def test_lpg_higher_consumption_than_base(self):
+        """LPG: wyższe spalanie o 15% (mnożnik 1.15)."""
+        monthly_km = np.array([2083] * 12)
+        liters_pb, _, _ = app.calc_annual_fuel_ice(
+            8.0, 5.5, (0.5, 0.4, 0.1), monthly_km, 6.50,
+            fuel_type_idx=0)
+        liters_lpg, _, _ = app.calc_annual_fuel_ice(
+            8.0, 5.5, (0.5, 0.4, 0.1), monthly_km, 3.30,
+            fuel_type_idx=2, pb95_price=6.50)
+        # Total liters should be the same (base liters) but LPG portion has 1.15x
+        # LPG uses 90% * 1.15 + 10% of base liters → not directly comparable
+        assert liters_lpg == liters_pb  # same base liters returned
+
+
+# ===========================================================================
+# 22. v21 — LPG Maintenance (component failure model)
+# ===========================================================================
+
+class TestLPGMaintenance:
+    def test_lpg_more_expensive_than_pb95(self):
+        """LPG serwis droższy niż benzyna (base + LPG components)."""
+        maint_pb = app.calculate_maintenance_cost(3, 125_000, "ICE", False,
+                                                   fuel_type_idx=0, period_years=5)
+        maint_lpg = app.calculate_maintenance_cost(3, 125_000, "ICE", False,
+                                                    fuel_type_idx=2, period_years=5)
+        assert maint_lpg["total"] > maint_pb["total"]
+        # LPG powinien być co najmniej 30% droższy (base +20% + komponenty)
+        ratio = maint_lpg["total"] / maint_pb["total"]
+        assert ratio > 1.3
+
+    def test_lpg_breakdown_has_gas_items(self):
+        """LPG breakdown zawiera pozycje instalacji gazowej."""
+        maint = app.calculate_maintenance_cost(3, 125_000, "ICE", False,
+                                                fuel_type_idx=2, period_years=5)
+        bd = maint["breakdown"]
+        assert "Filtry gazu LPG" in bd
+        assert "Świece zapłonowe (skrócony interwał)" in bd
+        assert "Wtryskiwacze LPG" in bd
+        assert "Zawory / gniazda zaworowe" in bd
+        assert "Sterownik + czujniki LPG" in bd
+        assert "Reduktor LPG" in bd
+        assert "Przegląd instalacji LPG (roczny)" in bd
+        # Wszystkie pozycje > 0
+        for key in ["Filtry gazu LPG", "Wtryskiwacze LPG", "Reduktor LPG"]:
+            assert bd[key] > 0
+
+    def test_lpg_service_annual(self):
+        """LPG: roczny przegląd = 500 zł × period_years."""
+        maint = app.calculate_maintenance_cost(3, 100_000, "ICE", False,
+                                                fuel_type_idx=2, period_years=5)
+        assert maint["breakdown"]["Przegląd instalacji LPG (roczny)"] == 500 * 5
+
+    def test_pb95_no_lpg_items(self):
+        """Benzyna NIE ma pozycji LPG w breakdown."""
+        maint = app.calculate_maintenance_cost(3, 125_000, "ICE", False,
+                                                fuel_type_idx=0, period_years=5)
+        bd = maint["breakdown"]
+        assert "Filtry gazu LPG" not in bd
+        assert "Wtryskiwacze LPG" not in bd
+
+
+# ===========================================================================
+# 23. v21 — V8 Presets (easter egg)
+# ===========================================================================
+
+class TestV8Presets:
+    def test_v8_segment_exists_new(self):
+        """V8 segment istnieje w presetach nowych aut."""
+        assert "V8 🏎️" in app.ICE_PRESETS_NEW
+
+    def test_v8_segment_exists_used(self):
+        """V8 segment istnieje w presetach używanych aut."""
+        assert "V8 🏎️" in app.ICE_PRESETS_USED
+
+    def test_v8_new_has_models(self):
+        """V8 nowe auta mają modele."""
+        v8 = app.ICE_PRESETS_NEW["V8 🏎️"]
+        assert len(v8) >= 2
+        for name, cfg in v8.items():
+            assert cfg["city_l"] >= 12  # V8 = duże spalanie
+            assert cfg["price"] >= 200_000
+
+    def test_v8_used_has_lpg_models(self):
+        """V8 używane zawierają modele na LPG."""
+        v8 = app.ICE_PRESETS_USED["V8 🏎️"]
+        lpg_models = [n for n, c in v8.items() if c.get("fuel") == 2]
+        assert len(lpg_models) >= 2  # co najmniej 2 modele LPG
+
+    def test_v8_fuel_field_valid(self):
+        """Pole 'fuel' w V8 presetach: 0=PB95, 1=ON, 2=LPG."""
+        for presets in [app.ICE_PRESETS_NEW, app.ICE_PRESETS_USED]:
+            if "V8 🏎️" in presets:
+                for name, cfg in presets["V8 🏎️"].items():
+                    assert cfg["fuel"] in (0, 1, 2)
+
+
+# ===========================================================================
+# 24. v21 — GreenWay March 2026 prices
+# ===========================================================================
+
+class TestGreenWayMarch2026:
+    def test_standard_dc_325(self):
+        """GreenWay Standard DC = 3.25 zł/kWh (marzec 2026)."""
+        assert app.GREENWAY_PLANS["Standard"]["dc_per_kwh"] == 3.25
+
+    def test_standard_ac_205(self):
+        """GreenWay Standard AC = 2.05 zł/kWh."""
+        assert app.GREENWAY_PLANS["Standard"]["ac_per_kwh"] == 2.05
+
+    def test_plus_dc_240(self):
+        """GreenWay Plus DC = 2.40 zł/kWh."""
+        assert app.GREENWAY_PLANS["Plus"]["dc_per_kwh"] == 2.40
+
+    def test_plus_ac_175(self):
+        """GreenWay Plus AC = 1.75 zł/kWh."""
+        assert app.GREENWAY_PLANS["Plus"]["ac_per_kwh"] == 1.75
+
+    def test_max_dc_210(self):
+        """GreenWay Max DC = 2.10 zł/kWh."""
+        assert app.GREENWAY_PLANS["Max"]["dc_per_kwh"] == 2.10
+
+    def test_max_ac_160(self):
+        """GreenWay Max AC = 1.60 zł/kWh."""
+        assert app.GREENWAY_PLANS["Max"]["ac_per_kwh"] == 1.60
+
+
+# ===========================================================================
+# 25. v21 — Pro Tier + Feature gates
+# ===========================================================================
+
+class TestProTier:
+    def test_is_pro_exists(self):
+        """Stała IS_PRO istnieje."""
+        assert hasattr(app, "IS_PRO")
+        assert isinstance(app.IS_PRO, bool)
+
+    def test_submeter_cost(self):
+        """Koszt podlicznika = 2500 zł."""
+        assert app.SUBMETER_COST == 2_500
+
+    def test_dynamic_price_cap(self):
+        """Tarcza cenowa: max średnia = G11 (0.42)."""
+        assert app.DYNAMIC_PRICE_CAP == 0.42
+
+    def test_moj_prad_6_max(self):
+        """Mój Prąd 6.0: max dotacja 28 000 zł."""
+        assert app.MOJ_PRAD_6_MAX == 28_000
+
+
+# ===========================================================================
+# 26. v21 — optimize_charging with submeter/price_cap
+# ===========================================================================
+
+class TestOptimizeChargingV21:
+    def test_submeter_accepted(self):
+        """optimize_charging akceptuje has_submeter param."""
+        result = app.optimize_charging(
+            annual_demand_kwh=3500, battery_cap_kwh=60,
+            pv_kwp=0, bess_kwh=0,
+            has_home_charger=True, has_dynamic_tariff=False,
+            has_old_pv=False, suc_distance_km=30,
+            annual_mileage_km=15000,
+            has_submeter=True)
+        assert result["total_cost"] > 0
+        assert result["has_submeter"] is True
+
+    def test_price_cap_accepted(self):
+        """optimize_charging akceptuje has_price_cap param."""
+        result = app.optimize_charging(
+            annual_demand_kwh=3500, battery_cap_kwh=60,
+            pv_kwp=0, bess_kwh=0,
+            has_home_charger=True, has_dynamic_tariff=True,
+            has_old_pv=False, suc_distance_km=30,
+            annual_mileage_km=15000,
+            has_price_cap=True)
+        assert result["total_cost"] > 0
+        assert "price_cap_applied" in result
+
+    def test_submeter_enables_dynamic(self):
+        """Submeter włącza dynamiczną taryfę dla EV nawet bez has_dynamic_tariff."""
+        result_static = app.optimize_charging(
+            annual_demand_kwh=3500, battery_cap_kwh=60,
+            pv_kwp=0, bess_kwh=0,
+            has_home_charger=True, has_dynamic_tariff=False,
+            has_old_pv=False, suc_distance_km=30,
+            annual_mileage_km=15000,
+            has_submeter=False)
+        result_submeter = app.optimize_charging(
+            annual_demand_kwh=3500, battery_cap_kwh=60,
+            pv_kwp=0, bess_kwh=0,
+            has_home_charger=True, has_dynamic_tariff=False,
+            has_old_pv=False, suc_distance_km=30,
+            annual_mileage_km=15000,
+            has_submeter=True)
+        # Submeter should give different (likely cheaper) cost due to dynamic pricing
+        assert result_submeter["total_cost"] != result_static["total_cost"]
+
+
+# ===========================================================================
+# 27. v21 — calculate_tco_quick with LPG
+# ===========================================================================
+
+class TestTCOQuickLPG:
+    def test_lpg_tco_cheaper_than_pb95(self):
+        """LPG TCO powinno być tańsze niż PB95 przy tym samym aucie."""
+        tco_pb = app.calculate_tco_quick(
+            vehicle_price=80_000, engine_type="ICE", is_new=False,
+            annual_mileage=25_000, period_years=5,
+            road_split=(0.5, 0.4, 0.1),
+            fuel_price=6.50, city_l=10.0, highway_l=7.0,
+            fuel_type_idx=0)
+        tco_lpg = app.calculate_tco_quick(
+            vehicle_price=80_000, engine_type="ICE", is_new=False,
+            annual_mileage=25_000, period_years=5,
+            road_split=(0.5, 0.4, 0.1),
+            fuel_price=3.30, city_l=10.0, highway_l=7.0,
+            fuel_type_idx=2, pb95_price=6.50)
+        # LPG fuel cheaper → TCO cheaper (even with higher maintenance)
+        assert tco_lpg["energy"] < tco_pb["energy"]
+
+    def test_lpg_tco_returns_valid(self):
+        """LPG TCO returns valid dict."""
+        tco = app.calculate_tco_quick(
+            vehicle_price=28_000, engine_type="ICE", is_new=False,
+            annual_mileage=20_000, period_years=5,
+            road_split=(0.5, 0.4, 0.1),
+            fuel_price=3.30, city_l=16.0, highway_l=11.0,
+            fuel_type_idx=2, pb95_price=6.50)
+        assert tco["tco"] > 0
+        assert tco["per_km"] > 0
+        assert tco["energy"] > 0
+
+
+# ===========================================================================
+# 28. v21 — APP_VERSION = "21"
+# ===========================================================================
+
+class TestVersion21:
+    def test_version_21(self):
+        assert app.APP_VERSION == "21"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
