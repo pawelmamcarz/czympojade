@@ -1,10 +1,8 @@
-APP_VERSION = "0.9.0"
-"""
-Kalkulator TCO: Auto Elektryczne (BEV) vs Spalinowe (ICE)
-z optymalizacją harmonogramu ładowania HiGHS.
+# Kalkulator TCO: Auto Elektryczne (BEV) vs Spalinowe (ICE)
+# z optymalizacją harmonogramu ładowania HiGHS.
+# Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
-"""
+APP_VERSION = "0.9.0"
 
 import streamlit as st
 import numpy as np
