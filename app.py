@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "19"
+APP_VERSION = "20"
 
 import streamlit as st
 import numpy as np
@@ -1853,20 +1853,24 @@ with col4:
     has_heat_pump = st.checkbox(
         "Pompa ciepła (PC) w domu", value=False,
         help=f"Typowe zużycie PC: ~{HEAT_PUMP_ANNUAL_KWH:,} kWh/rok (dom 100-140 m², COP ~3.5). "
-             "Zmienia optymalne proporcje PV:BESS.",
+             "Zalecany BESS: 20 kWh (PC) + 30 kWh (BEV) = 50 kWh.",
     )
 
 # BESS Smart Advisor
 if pv_kwp > 0:
-    bess_ratio = 2.0 if has_heat_pump else 1.5
-    recommended_bess = pv_kwp / bess_ratio
-    st.info(
-        f"**BESS Advisor:** PV {pv_kwp:.1f} kWp "
-        f"{'+ pompa ciepła' if has_heat_pump else '(bez PC)'} → "
-        f"ratio PV:BESS = {bess_ratio}:1 → "
-        f"zalecany BESS: **{recommended_bess:.0f} kWh**"
-        + (f" (masz: {bess_kwh:.0f} kWh)" if bess_kwh > 0 else "")
-    )
+    _has_bev = vehicle_price_bev > 0
+    _bess_parts = []
+    if has_heat_pump:
+        _bess_parts.append("20 kWh (pompa ciepła)")
+    if _has_bev:
+        _bess_parts.append("30 kWh (ładowanie BEV)")
+    recommended_bess = (20 if has_heat_pump else 0) + (30 if _has_bev else 0)
+    if recommended_bess > 0:
+        st.info(
+            f"**BESS Advisor:** zalecany magazyn: **{recommended_bess} kWh** "
+            f"({' + '.join(_bess_parts)})"
+            + (f" — masz: {bess_kwh:.0f} kWh" if bess_kwh > 0 else "")
+        )
 
 # Szacunkowe zużycie prądu w domu (PC + BEV)
 if has_heat_pump:
@@ -3161,7 +3165,7 @@ with opt_tab_a:
                           "Taryfa": "—", "Inwestycja": 0, "napęd": hyb_type, **r_h})
 
         pv_opts = [0] + ([3, 5, 10] if has_roof else [])
-        bess_opts = [0] + ([10, 30] if has_garage else [])
+        bess_opts = [0] + (([0, 20, 30, 50] if has_heat_pump else [10, 30]) if has_garage else [])
         tariff_opts = [(False, "G11"), (True, "Pstryk")] if has_garage else [(False, "G11")]
 
         n_total = len(pv_opts) * len(bess_opts) * len(tariff_opts)
@@ -3425,62 +3429,79 @@ with opt_tab_b:
 # ---- TAB C: PORÓWNANIE FLOTY ----
 with opt_tab_c:
     st.markdown(
-        "Porównaj modele z wybranego segmentu. Tabela ładowana automatycznie z presetów "
-        "(ICE / HEV / PHEV / BEV). Możesz edytować lub dodawać własne."
+        "Porównaj modele z wielu segmentów. Ustaw **ilość** pojazdów per model, "
+        "aby zasymulować zakup floty (np. 50 aut: 10 × seg. A, 20 × seg. B, reszta C/D)."
     )
 
-    # Segment selector
+    # Multi-segment selector
     _seg_keys = list(ICE_PRESETS_NEW.keys())
-    _fleet_seg = st.selectbox("Segment do porównania", _seg_keys, index=2, key="fleet_seg")
+    _fleet_segs = st.multiselect(
+        "Segmenty do porównania", _seg_keys,
+        default=[_seg_keys[2]],
+        key="fleet_seg",
+    )
+    if not _fleet_segs:
+        _fleet_segs = [_seg_keys[2]]
     _fleet_new = st.radio("Stan pojazdów", ["Nowe", "Używane"], horizontal=True, key="fleet_new")
     _is_fleet_new = _fleet_new == "Nowe"
 
-    # Build fleet from actual presets
+    # Build fleet from actual presets — all selected segments
     _ice_src = ICE_PRESETS_NEW if _is_fleet_new else ICE_PRESETS_USED
     _hyb_src = HYB_PRESETS_NEW if _is_fleet_new else HYB_PRESETS_USED
     _bev_src = BEV_PRESETS_NEW if _is_fleet_new else BEV_PRESETS_USED
 
     _fleet_rows = []
-    # Add user's selected cars first
-    _fleet_rows.append({"Model": ice_model, "Cena (zł)": int(vehicle_price_ice),
+    # Add user's selected cars first (segment = "—")
+    _fleet_rows.append({"Segment": "—", "Model": ice_model, "Ilość": 1,
+                        "Cena (zł)": int(vehicle_price_ice),
                         "Napęd": "ICE", "Miasto (l)": ice_city_l, "Trasa (l)": ice_highway_l,
                         "Miasto (kWh)": 0.0, "Trasa (kWh)": 0.0, "Bat (kWh)": 0, "Elec%": 0.0})
-    _fleet_rows.append({"Model": hyb_model, "Cena (zł)": int(vehicle_price_hyb),
+    _fleet_rows.append({"Segment": "—", "Model": hyb_model, "Ilość": 1,
+                        "Cena (zł)": int(vehicle_price_hyb),
                         "Napęd": hyb_type, "Miasto (l)": hyb_city_l, "Trasa (l)": hyb_highway_l,
                         "Miasto (kWh)": hyb_city_kwh if hyb_type == "PHEV" else 0.0,
                         "Trasa (kWh)": hyb_highway_kwh if hyb_type == "PHEV" else 0.0,
                         "Bat (kWh)": hyb_bat_cap if hyb_type == "PHEV" else 0,
                         "Elec%": hyb_elec_pct if hyb_type == "PHEV" else 0.0})
-    _fleet_rows.append({"Model": bev_model, "Cena (zł)": int(vehicle_price_bev),
+    _fleet_rows.append({"Segment": "—", "Model": bev_model, "Ilość": 1,
+                        "Cena (zł)": int(vehicle_price_bev),
                         "Napęd": "BEV", "Miasto (l)": 0.0, "Trasa (l)": 0.0,
                         "Miasto (kWh)": bev_city_kwh, "Trasa (kWh)": bev_highway_kwh,
                         "Bat (kWh)": int(battery_capacity), "Elec%": 1.0})
-    # Add competitors from segment presets
+    # Add competitors from all selected segments
     _used_models = {ice_model, hyb_model, bev_model}
-    for name, cfg in _ice_src.get(_fleet_seg, {}).items():
-        if name not in _used_models:
-            _fleet_rows.append({"Model": name, "Cena (zł)": cfg["price"],
-                                "Napęd": "ICE", "Miasto (l)": cfg["city_l"], "Trasa (l)": cfg["hwy_l"],
-                                "Miasto (kWh)": 0.0, "Trasa (kWh)": 0.0, "Bat (kWh)": 0, "Elec%": 0.0})
-    for name, cfg in _hyb_src.get(_fleet_seg, {}).items():
-        if name not in _used_models:
-            ht = cfg.get("hybrid_type", "HEV")
-            _fleet_rows.append({"Model": name, "Cena (zł)": cfg["price"],
-                                "Napęd": ht, "Miasto (l)": cfg["city_l"], "Trasa (l)": cfg["hwy_l"],
-                                "Miasto (kWh)": cfg.get("city_kwh", 0.0), "Trasa (kWh)": cfg.get("hwy_kwh", 0.0),
-                                "Bat (kWh)": cfg.get("bat", 0), "Elec%": cfg.get("elec_pct", 0.0)})
-    for name, cfg in _bev_src.get(_fleet_seg, {}).items():
-        if name not in _used_models:
-            _fleet_rows.append({"Model": name, "Cena (zł)": cfg["price"],
-                                "Napęd": "BEV", "Miasto (l)": 0.0, "Trasa (l)": 0.0,
-                                "Miasto (kWh)": cfg["city_kwh"], "Trasa (kWh)": cfg["hwy_kwh"],
-                                "Bat (kWh)": cfg.get("bat", 60), "Elec%": 1.0})
+    for _seg in _fleet_segs:
+        _seg_short = _seg.split(" ")[0]  # "A", "B", etc.
+        for name, cfg in _ice_src.get(_seg, {}).items():
+            if name not in _used_models:
+                _fleet_rows.append({"Segment": _seg_short, "Model": name, "Ilość": 1,
+                                    "Cena (zł)": cfg["price"],
+                                    "Napęd": "ICE", "Miasto (l)": cfg["city_l"], "Trasa (l)": cfg["hwy_l"],
+                                    "Miasto (kWh)": 0.0, "Trasa (kWh)": 0.0, "Bat (kWh)": 0, "Elec%": 0.0})
+        for name, cfg in _hyb_src.get(_seg, {}).items():
+            if name not in _used_models:
+                ht = cfg.get("hybrid_type", "HEV")
+                _fleet_rows.append({"Segment": _seg_short, "Model": name, "Ilość": 1,
+                                    "Cena (zł)": cfg["price"],
+                                    "Napęd": ht, "Miasto (l)": cfg["city_l"], "Trasa (l)": cfg["hwy_l"],
+                                    "Miasto (kWh)": cfg.get("city_kwh", 0.0), "Trasa (kWh)": cfg.get("hwy_kwh", 0.0),
+                                    "Bat (kWh)": cfg.get("bat", 0), "Elec%": cfg.get("elec_pct", 0.0)})
+        for name, cfg in _bev_src.get(_seg, {}).items():
+            if name not in _used_models:
+                _fleet_rows.append({"Segment": _seg_short, "Model": name, "Ilość": 1,
+                                    "Cena (zł)": cfg["price"],
+                                    "Napęd": "BEV", "Miasto (l)": 0.0, "Trasa (l)": 0.0,
+                                    "Miasto (kWh)": cfg["city_kwh"], "Trasa (kWh)": cfg["hwy_kwh"],
+                                    "Bat (kWh)": cfg.get("bat", 60), "Elec%": 1.0})
 
     default_cars = pd.DataFrame(_fleet_rows)
 
     edited_cars = st.data_editor(
         default_cars,
         column_config={
+            "Segment": st.column_config.TextColumn(help="Segment rynkowy (A-E)", width="small"),
+            "Ilość": st.column_config.NumberColumn(
+                help="Ilość pojazdów do zakupu", min_value=0, max_value=500, step=1, default=1),
             "Napęd": st.column_config.SelectboxColumn(options=["ICE", "HEV", "PHEV", "BEV"]),
             "Cena (zł)": st.column_config.NumberColumn(min_value=5000, max_value=1_000_000, step=5000),
             "Miasto (l)": st.column_config.NumberColumn(
@@ -3502,8 +3523,10 @@ with opt_tab_c:
         key="portfolio_editor",
     )
 
-    if st.button("Porównaj wszystkie modele (HiGHS)", key="btn_portfolio"):
+    if st.button("Porównaj flotę (HiGHS)", key="btn_portfolio"):
         valid_cars = edited_cars.dropna(subset=["Model", "Cena (zł)", "Napęd"])
+        # Filter out qty=0 rows
+        valid_cars = valid_cars[valid_cars.get("Ilość", pd.Series([1] * len(valid_cars))).fillna(1).astype(int) > 0]
         if len(valid_cars) < 2:
             st.warning("Dodaj co najmniej 2 pojazdy do porównania.")
         else:
@@ -3514,6 +3537,7 @@ with opt_tab_c:
                 etype = car["Napęd"]
                 _car_bat = car.get("Bat (kWh)", 60) or 60
                 _car_elec = car.get("Elec%", 0) or 0
+                _car_qty = int(car.get("Ilość", 1) or 1)
                 if etype in ("ICE", "HEV"):
                     r = calculate_tco_quick(
                         car["Cena (zł)"], etype, _is_fleet_new, annual_mileage,
@@ -3549,7 +3573,9 @@ with opt_tab_c:
                         has_old_pv=has_old_pv, suc_distance=suc_distance,
                         use_tax=use_tax_shield, tax_rate=tax_rate)
                 results.append({
+                    "Segment": car.get("Segment", "—") or "—",
                     "Model": car["Model"], "Napęd": etype,
+                    "Ilość": _car_qty,
                     "Cena": car["Cena (zł)"], **r,
                 })
                 progress.progress((idx + 1) / len(valid_cars),
@@ -3558,38 +3584,79 @@ with opt_tab_c:
             progress.empty()
             df_p = pd.DataFrame(results).sort_values("tco")
 
-            # Winner + savings
+            # Fleet totals
+            df_p["fleet_tco"] = df_p["tco"] * df_p["Ilość"]
+            df_p["fleet_cena"] = df_p["Cena"] * df_p["Ilość"]
+            fleet_count = int(df_p["Ilość"].sum())
+            fleet_total = df_p["fleet_tco"].sum()
+            fleet_purchase = df_p["fleet_cena"].sum()
+
+            # Fleet metrics
+            fc1, fc2, fc3, fc4 = st.columns(4)
+            fc1.metric("Flota", f"{fleet_count} szt.")
+            fc2.metric("Łączny zakup", f"{fleet_purchase:,.0f} zł")
+            fc3.metric("Łączny TCO", f"{fleet_total:,.0f} zł")
+            fc4.metric("Śr. TCO/auto", f"{fleet_total / max(fleet_count, 1):,.0f} zł")
+
+            # Winner per unit + cheapest drive type for fleet
             w = df_p.iloc[0]
             if len(df_p) > 1:
                 runner_up = df_p.iloc[1]
                 savings = runner_up["tco"] - w["tco"]
                 st.success(
-                    f"**🏆 Zwycięzca:** {w['Model']} ({w['Napęd']}) – "
+                    f"**🏆 Najtańszy model (per szt.):** {w['Model']} ({w['Napęd']}) – "
                     f"TCO **{w['tco']:,.0f} zł** ({w['per_km']:.2f} zł/km)\n\n"
-                    f"Oszczędność vs 2. miejsce ({runner_up['Model']}): **{savings:,.0f} zł**"
+                    f"Oszczędność vs 2. miejsce ({runner_up['Model']}): **{savings:,.0f} zł/szt.**"
                 )
             else:
                 st.success(
-                    f"**🏆 Zwycięzca:** {w['Model']} ({w['Napęd']}) – "
+                    f"**🏆 Najtańszy model:** {w['Model']} ({w['Napęd']}) – "
                     f"TCO **{w['tco']:,.0f} zł** ({w['per_km']:.2f} zł/km)"
                 )
 
-            # Bar chart with drive-type colors
+            # Fleet cost by drive type
+            by_drive = df_p.groupby("Napęd").agg(
+                szt=("Ilość", "sum"), koszt=("fleet_tco", "sum")).reset_index()
+            if len(by_drive) > 1:
+                cheapest = by_drive.loc[by_drive["koszt"].idxmin()]
+                st.info(
+                    f"**Najtańszy napęd we flocie:** {cheapest['Napęd']} — "
+                    f"{int(cheapest['szt'])} szt., łączny TCO: {cheapest['koszt']:,.0f} zł"
+                )
+
+            # Bar chart — per unit TCO ranking
             fig_p = go.Figure()
+            _labels = df_p["Model"] + " (" + df_p["Napęd"] + ") ×" + df_p["Ilość"].astype(str)
             fig_p.add_trace(go.Bar(
-                x=df_p["Model"] + " (" + df_p["Napęd"] + ")",
+                x=_labels,
                 y=df_p["tco"],
                 marker_color=[_DRIVE_COLORS.get(n, "#94a3b8") for n in df_p["Napęd"]],
                 text=df_p["tco"].apply(lambda x: f"{x:,.0f}"),
                 textposition="outside",
             ))
             fig_p.update_layout(
-                title=f"Ranking TCO – {period_years} lata, {annual_mileage:,} km/rok (HiGHS LP)",
-                yaxis_title="TCO (zł)", height=480,
+                title=f"TCO per szt. – {period_years} lata, {annual_mileage:,} km/rok",
+                yaxis_title="TCO (zł/szt.)", height=480,
             )
             st.plotly_chart(fig_p, use_container_width=True)
 
-            # Stacked bar – breakdown
+            # Fleet cost bar — total fleet_tco per model
+            if fleet_count > len(df_p):
+                fig_fleet = go.Figure()
+                fig_fleet.add_trace(go.Bar(
+                    x=_labels,
+                    y=df_p["fleet_tco"],
+                    marker_color=[_DRIVE_COLORS.get(n, "#94a3b8") for n in df_p["Napęd"]],
+                    text=df_p["fleet_tco"].apply(lambda x: f"{x:,.0f}"),
+                    textposition="outside",
+                ))
+                fig_fleet.update_layout(
+                    title=f"Koszt floty (ilość × TCO) – łącznie {fleet_total:,.0f} zł",
+                    yaxis_title="Fleet TCO (zł)", height=480,
+                )
+                st.plotly_chart(fig_fleet, use_container_width=True)
+
+            # Stacked bar – breakdown per unit
             fig_stack = go.Figure()
             models_sorted = df_p["Model"] + " (" + df_p["Napęd"] + ")"
             fig_stack.add_trace(go.Bar(
@@ -3603,18 +3670,19 @@ with opt_tab_c:
             fig_stack.add_trace(go.Bar(
                 name="Tarcza podatkowa", x=models_sorted, y=-df_p["tax"], marker_color="#22c55e"))
             fig_stack.update_layout(
-                title="Struktura TCO – rozbicie kosztów",
+                title="Struktura TCO per szt. – rozbicie kosztów",
                 barmode="relative", yaxis_title="PLN", height=480,
             )
             st.plotly_chart(fig_stack, use_container_width=True)
 
-            # Detailed table
-            show_p = df_p[["Model", "Napęd", "Cena", "tco", "energy",
-                           "maint", "ins", "tax", "per_km", "monthly"]].copy()
-            show_p.columns = ["Model", "Napęd", "Cena zakupu", "TCO",
-                              "Energia/Paliwo", "Serwis", "Ubezp.",
+            # Detailed table with fleet columns
+            show_p = df_p[["Segment", "Model", "Napęd", "Ilość", "Cena", "tco",
+                           "fleet_tco", "energy", "maint", "ins", "tax",
+                           "per_km", "monthly"]].copy()
+            show_p.columns = ["Seg.", "Model", "Napęd", "Szt.", "Cena/szt.", "TCO/szt.",
+                              "Fleet TCO", "Energia", "Serwis", "Ubezp.",
                               "Tarcza pod.", "zł/km", "zł/mies."]
-            for c in ["Cena zakupu", "TCO", "Energia/Paliwo", "Serwis",
+            for c in ["Cena/szt.", "TCO/szt.", "Fleet TCO", "Energia", "Serwis",
                        "Ubezp.", "Tarcza pod.", "zł/mies."]:
                 show_p[c] = show_p[c].apply(lambda x: f"{x:,.0f}")
             show_p["zł/km"] = show_p["zł/km"].apply(lambda x: f"{x:.2f}")
