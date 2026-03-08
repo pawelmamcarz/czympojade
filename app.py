@@ -28,10 +28,31 @@ st.set_page_config(
     layout="wide",
 )
 
+# ---------------------------------------------------------------------------
+# SIDEBAR – Logo + kontakt
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.image("logo.png", use_container_width=True)
+    st.markdown("---")
+    st.markdown(
+        "**Kalkulator TCO** EV vs ICE\n\n"
+        "Optymalizacja kosztów z użyciem solvera **HiGHS** "
+        "(programowanie liniowe). Dane rynkowe 2025/2026, "
+        "bieżące ceny paliw z e-petrol.pl."
+    )
+    st.markdown("---")
+    st.markdown(
+        "[LinkedIn](https://www.linkedin.com/in/pawelmamcarz/) | "
+        "[pawel@mamcarz.com](mailto:pawel@mamcarz.com) | "
+        "+48 535 535 221"
+    )
+    st.caption("© 2026 Paweł Mamcarz. Wszelkie prawa zastrzeżone.")
+
 st.title("Kalkulator TCO: Auto Elektryczne vs Spalinowe")
 st.caption(
-    "Porównaj Całkowity Koszt Posiadania (TCO) z uwzględnieniem taryf dynamicznych, "
-    "tarczy podatkowej 2026, wpływu temperatury i optymalizacji ładowania HiGHS."
+    "Optymalizacja z użyciem **HiGHS** (Linear Programming). "
+    "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
+    "tarcza podatkowa 2026 i wpływ temperatury na zużycie."
 )
 
 # ---------------------------------------------------------------------------
@@ -250,14 +271,16 @@ def optimize_charging(
     has_old_pv: bool,
     suc_distance_km: float,
     annual_mileage_km: float,
+    dc_price: float = 1.60,
+    ac_pub_price: float = 1.95,
 ) -> dict:
     """Optymalizuje roczny harmonogram ładowania BEV za pomocą HiGHS LP.
 
     Model: 288 slotów (12 miesięcy × 24h reprezentatywnego dnia).
     HiGHS minimalizuje koszt energii, NIE liczy TCO – to tylko jedna składowa.
     """
-    PRICE_SUC = 1.60
-    PRICE_AC_PUB = 1.95
+    PRICE_SUC = dc_price
+    PRICE_AC_PUB = ac_pub_price
     PRICE_BESS_CYCLE = 0.02
     DIST_FEE = 0.30
 
@@ -533,6 +556,42 @@ def estimate_insurance(vehicle_price, engine_type):
     return 1200 + vehicle_price * (0.04 if engine_type == "ICE" else 0.05)
 
 
+def calculate_tco_quick(
+    vehicle_price, engine_type, is_new, annual_mileage, period_years, city_pct,
+    fuel_price=0, city_l=0, highway_l=0,
+    city_kwh=0, highway_kwh=0, battery_cap=75,
+    pv_kwp=0, bess_kwh=0, has_home_charger=True,
+    has_dynamic_tariff=True, has_old_pv=False, suc_distance=30,
+    use_tax=True, tax_rate=0.19,
+) -> dict:
+    """Szybkie obliczenie TCO dla optymalizatora (HiGHS LP wewnątrz dla BEV)."""
+    seg = price_to_segment(vehicle_price)
+    total_km = annual_mileage * period_years
+    mkm = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
+    if engine_type == "ICE":
+        _, fa, _ = calc_annual_fuel_ice(city_l, highway_l, city_pct, mkm, fuel_price)
+    else:
+        dem, _ = calc_annual_consumption_bev(city_kwh, highway_kwh, city_pct, mkm)
+        ch = optimize_charging(dem, battery_cap, pv_kwp, bess_kwh,
+                               has_home_charger, has_dynamic_tariff, has_old_pv,
+                               suc_distance, annual_mileage)
+        fa = ch["total_cost"]
+    et = fa * period_years
+    mt = calculate_maintenance_cost(seg, total_km, engine_type, is_new)["total"]
+    ins = estimate_insurance(vehicle_price, engine_type) * period_years
+    tx = calculate_tax_shield(vehicle_price, engine_type, fa,
+                              estimate_insurance(vehicle_price, engine_type),
+                              period_years, tax_rate) if use_tax else 0
+    dep = calculate_depreciation(vehicle_price, seg, period_years, engine_type, is_new)
+    rv = vehicle_price - dep  # residual value
+    tco = vehicle_price + et + mt + ins - tx
+    tco_net = tco - rv  # TCO netto = koszt po odzyskaniu RV
+    return {"tco": tco, "tco_net": tco_net, "rv": rv,
+            "per_km": tco_net / total_km if total_km > 0 else 0,
+            "monthly": tco_net / (period_years * 12), "energy": et,
+            "maint": mt, "ins": ins, "tax": tx, "dep": dep}
+
+
 # ===========================================================================
 # GŁÓWNY INTERFEJS
 # ===========================================================================
@@ -719,6 +778,49 @@ with col6:
         "Odległość do Superchargera (km)", min_value=0, max_value=500, value=30, step=5
     )
 
+# Ładowanie trasowe – widoczne gdy dużo trasy
+highway_pct = 1.0 - city_pct
+if highway_pct >= 0.3:
+    st.subheader("Ładowanie trasowe (poza domem)")
+    st.caption(
+        f"Przy {highway_pct:.0%} jazdy trasowej część energii BEV pobierana będzie "
+        "na stacjach szybkiego ładowania DC (>200 km trasy = ładowanie w trasie)."
+    )
+    col_ch1, col_ch2 = st.columns(2)
+    with col_ch1:
+        dc_charger_type = st.selectbox(
+            "Preferowana sieć ładowania DC",
+            [
+                "Tesla Supercharger (1.49–1.69 zł/kWh)",
+                "Orlen Charge (1.79–1.99 zł/kWh)",
+                "GreenWay (1.69–1.89 zł/kWh)",
+                "Powerdot (1.59–1.79 zł/kWh)",
+                "Inne / średnia rynkowa (1.80 zł/kWh)",
+            ],
+            index=0,
+            help="Cena zależy od abonamentu i mocy. Podane zakresy to ceny 2025/2026.",
+        )
+    with col_ch2:
+        dc_price_map = {
+            "Tesla": 1.59, "Orlen": 1.89, "GreenWay": 1.79,
+            "Powerdot": 1.69, "Inne": 1.80,
+        }
+        dc_key = [k for k in dc_price_map if k in dc_charger_type][0]
+        dc_price_default = dc_price_map[dc_key]
+        dc_price_custom = st.number_input(
+            "Cena ładowania DC (zł/kWh)",
+            min_value=0.50, max_value=5.00, value=dc_price_default, step=0.05,
+            help="Możesz wpisać własną cenę. Wartość domyślna z wybranej sieci.",
+        )
+        ac_pub_price = st.number_input(
+            "Cena ładowania publiczne AC (zł/kWh)",
+            min_value=0.50, max_value=5.00, value=1.95, step=0.05,
+            help="Publiczne ładowarki AC w miastach (7-22 kW).",
+        )
+else:
+    dc_price_custom = 1.60
+    ac_pub_price = 1.95
+
 st.subheader("Parametry podatkowe")
 col7, col8 = st.columns(2)
 with col7:
@@ -784,7 +886,9 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
         )
 
     tco_ice = vehicle_price_ice + fuel_cost_total + maint_ice + insurance_ice - tax_shield_ice
-    cost_per_km_ice = tco_ice / total_mileage if total_mileage > 0 else 0
+    rv_ice = vehicle_price_ice - depreciation_ice  # wartość rezydualna
+    tco_net_ice = tco_ice - rv_ice  # TCO netto (po odzyskaniu RV)
+    cost_per_km_ice = tco_net_ice / total_mileage if total_mileage > 0 else 0
 
     # --- BEV ---
     annual_energy_demand, bev_monthly_kwh = calc_annual_consumption_bev(
@@ -806,6 +910,8 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
             has_old_pv=has_old_pv,
             suc_distance_km=suc_distance,
             annual_mileage_km=annual_mileage,
+            dc_price=dc_price_custom,
+            ac_pub_price=ac_pub_price,
         )
 
     energy_cost_annual = charging_result["total_cost"]
@@ -824,7 +930,9 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
         )
 
     tco_bev = vehicle_price_bev + energy_cost_total + maint_bev + insurance_bev - tax_shield_bev
-    cost_per_km_bev = tco_bev / total_mileage if total_mileage > 0 else 0
+    rv_bev = vehicle_price_bev - depreciation_bev  # wartość rezydualna
+    tco_net_bev = tco_bev - rv_bev  # TCO netto (po odzyskaniu RV)
+    cost_per_km_bev = tco_net_bev / total_mileage if total_mileage > 0 else 0
 
     # ===================================================================
     # WYNIKI
@@ -854,22 +962,47 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
     ])
 
     with tab1:
+        # RV i TCO netto
+        col_rv1, col_rv2 = st.columns(2)
+        with col_rv1:
+            st.markdown(f"**{ice_model}**")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Wartość rezydualna (RV)", f"{rv_ice:,.0f} zł",
+                       delta=f"-{depreciation_ice:,.0f} zł deprecjacja", delta_color="inverse")
+            c2.metric("Tarcza podatkowa", f"-{tax_shield_ice:,.0f} zł")
+            c3.metric("TCO netto (po sprzedaży)", f"{tco_net_ice:,.0f} zł",
+                       help="TCO brutto − wartość rezydualna = realny koszt posiadania")
+        with col_rv2:
+            st.markdown(f"**{bev_model}**")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Wartość rezydualna (RV)", f"{rv_bev:,.0f} zł",
+                       delta=f"-{depreciation_bev:,.0f} zł deprecjacja", delta_color="inverse")
+            c2.metric("Tarcza podatkowa", f"-{tax_shield_bev:,.0f} zł")
+            c3.metric("TCO netto (po sprzedaży)", f"{tco_net_bev:,.0f} zł",
+                       help="TCO brutto − wartość rezydualna = realny koszt posiadania")
+
+        st.markdown("---")
         col_a, col_b, col_c = st.columns(3)
         with col_a:
-            st.metric(f"Koszt / km – {ice_model.split()[0]}", f"{cost_per_km_ice:.2f} zł")
+            st.metric(f"Koszt / km – {ice_model.split()[0]}", f"{cost_per_km_ice:.2f} zł",
+                       help="TCO netto / km (po odliczeniu RV i tarczy)")
         with col_b:
-            st.metric(f"Koszt / km – {bev_model.split()[0]}", f"{cost_per_km_bev:.2f} zł")
+            st.metric(f"Koszt / km – {bev_model.split()[0]}", f"{cost_per_km_bev:.2f} zł",
+                       help="TCO netto / km (po odliczeniu RV i tarczy)")
         with col_c:
-            diff = tco_ice - tco_bev
+            diff = tco_net_ice - tco_net_bev
             st.metric(
-                "Oszczędność BEV vs ICE", f"{abs(diff):,.0f} zł",
+                "Oszczędność BEV vs ICE (netto)", f"{abs(diff):,.0f} zł",
                 delta=f"{'BEV tańsze' if diff > 0 else 'ICE tańsze'}",
                 delta_color="normal" if diff > 0 else "inverse",
             )
 
-        categories = ["Zakup", "Paliwo / Prąd", "Serwis", "Ubezpieczenie", "Tarcza podatkowa", "RAZEM TCO"]
-        ice_vals = [vehicle_price_ice, fuel_cost_total, maint_ice, insurance_ice, -tax_shield_ice, tco_ice]
-        bev_vals = [vehicle_price_bev, energy_cost_total, maint_bev, insurance_bev, -tax_shield_bev, tco_bev]
+        categories = ["Zakup", "Paliwo / Prąd", "Serwis", "Ubezpieczenie",
+                       "Tarcza podatkowa", "Wart. rezydualna (RV)", "TCO brutto", "TCO NETTO"]
+        ice_vals = [vehicle_price_ice, fuel_cost_total, maint_ice, insurance_ice,
+                    -tax_shield_ice, -rv_ice, tco_ice, tco_net_ice]
+        bev_vals = [vehicle_price_bev, energy_cost_total, maint_bev, insurance_bev,
+                    -tax_shield_bev, -rv_bev, tco_bev, tco_net_bev]
 
         fig_bar = go.Figure()
         fig_bar.add_trace(go.Bar(
@@ -893,16 +1026,26 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
 
         fig_line = go.Figure()
         fig_line.add_trace(go.Scatter(
-            x=months_range, y=ice_cum, name=f"ICE – {ice_model}",
+            x=months_range, y=ice_cum, name=f"ICE – {ice_model} (brutto)",
             line=dict(color="#ef4444", width=3),
         ))
         fig_line.add_trace(go.Scatter(
-            x=months_range, y=bev_cum, name=f"BEV – {bev_model}",
+            x=months_range, y=bev_cum, name=f"BEV – {bev_model} (brutto)",
             line=dict(color="#22c55e", width=3),
         ))
+        # RV markers at end – show netto after resale
+        last_mo = months_range[-1]
+        fig_line.add_trace(go.Scatter(
+            x=[last_mo, last_mo], y=[tco_net_ice, tco_net_bev],
+            mode="markers+text", name="TCO netto (po sprzedaży)",
+            marker=dict(size=14, symbol="star", color=["#ef4444", "#22c55e"],
+                        line=dict(width=2, color="black")),
+            text=[f"netto: {tco_net_ice:,.0f}", f"netto: {tco_net_bev:,.0f}"],
+            textposition=["top right", "bottom right"],
+        ))
         fig_line.update_layout(
-            title="Koszt narastający w czasie",
-            xaxis_title="Miesiąc", yaxis_title="Koszt skumulowany (PLN)", height=400,
+            title="Koszt narastający w czasie (gwiazdki = TCO netto po sprzedaży auta)",
+            xaxis_title="Miesiąc", yaxis_title="Koszt skumulowany (PLN)", height=450,
         )
         st.plotly_chart(fig_line, use_container_width=True)
 
@@ -1033,8 +1176,12 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
                 f"Ubezpieczenie OC+AC ({period_years} lata)",
                 "Utrata wartości (deprecjacja)",
                 "Tarcza podatkowa 2026 (oszczędność)",
-                "RAZEM TCO",
-                "Koszt / km",
+                "TCO brutto (suma wydatków)",
+                "",
+                "Wartość rezydualna (RV) po sprzedaży",
+                "TCO NETTO (realny koszt posiadania)",
+                "Koszt / km (netto)",
+                "",
                 "Śr. zużycie (z temp.)",
                 "Narzut temperaturowy",
             ],
@@ -1048,7 +1195,11 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
                 f"{depreciation_ice:,.0f} zł",
                 f"-{tax_shield_ice:,.0f} zł",
                 f"{tco_ice:,.0f} zł",
+                "",
+                f"{rv_ice:,.0f} zł",
+                f"{tco_net_ice:,.0f} zł",
                 f"{cost_per_km_ice:.2f} zł",
+                "",
                 f"{avg_ice_real:.1f} l/100km",
                 f"+{ice_temp_penalty_pct:.1f}%",
             ],
@@ -1062,7 +1213,11 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
                 f"{depreciation_bev:,.0f} zł",
                 f"-{tax_shield_bev:,.0f} zł",
                 f"{tco_bev:,.0f} zł",
+                "",
+                f"{rv_bev:,.0f} zł",
+                f"{tco_net_bev:,.0f} zł",
                 f"{cost_per_km_bev:.2f} zł",
+                "",
                 f"{avg_bev_real:.1f} kWh/100km",
                 f"+{bev_temp_penalty_pct:.1f}%",
             ],
@@ -1141,3 +1296,408 @@ if st.button("Oblicz TCO", type="primary", use_container_width=True):
             "na zużycie obu napędów, oraz rozbicie kosztów serwisowych. "
             "Ceny paliw aktualizowane z e-petrol.pl."
         )
+
+# ---------------------------------------------------------------------------
+# OPTYMALIZATOR HiGHS – trzy tryby zaawansowanej analizy
+# ---------------------------------------------------------------------------
+st.divider()
+st.header("3. Optymalizator HiGHS")
+st.caption(
+    "Zaawansowane analizy TCO z użyciem solvera **HiGHS** (Linear Programming). "
+    "Każdy scenariusz BEV uruchamia osobną optymalizację harmonogramu ładowania."
+)
+
+opt_mode = st.radio(
+    "Tryb optymalizacji",
+    ["A: Doradca", "B: Punkt zwrotny", "C: Porównanie floty"],
+    horizontal=True,
+    captions=[
+        "Optymalna konfiguracja PV/BESS/taryfa",
+        "Przy jakim przebiegu BEV wygrywa?",
+        "Ranking wielu modeli naraz",
+    ],
+)
+
+# ---- MODE A: DORADCA ----
+if "Doradca" in opt_mode:
+    st.subheader("Doradca – optymalna konfiguracja ładowania")
+    st.markdown(
+        "Dla każdej kombinacji PV / BESS / taryfy HiGHS optymalizuje koszt energii BEV, "
+        "a następnie oblicza pełne TCO. Wynik: ranking od najtańszego."
+    )
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        budget_monthly = st.number_input(
+            "Budżet miesięczny na auto (zł)", 500, 15_000, 3_000, 250, key="adv_budget")
+        has_roof = st.checkbox("Mam dach na PV", True, key="adv_roof")
+    with col_d2:
+        has_garage = st.checkbox("Mam garaż / wallbox", True, key="adv_garage")
+        include_invest = st.checkbox(
+            "Uwzględnij koszt inwestycji PV/BESS",
+            True, key="adv_invest",
+            help="PV: ~4 000 zł/kWp, BESS: ~3 000 zł/kWh (ceny rynkowe PL 2025/2026)",
+        )
+
+    PV_COST_PER_KWP = 4_000
+    BESS_COST_PER_KWH = 3_000
+
+    if st.button("Znajdź optymalną konfigurację (HiGHS)", key="btn_adv"):
+        scenarios = []
+        # ICE baseline
+        r = calculate_tco_quick(
+            vehicle_price_ice, "ICE", is_new, annual_mileage, period_years, city_pct,
+            fuel_price=fuel_price, city_l=ice_city_l, highway_l=ice_highway_l,
+            use_tax=use_tax_shield, tax_rate=tax_rate)
+        scenarios.append({"Konfig.": f"ICE: {ice_model}", "PV": 0, "BESS": 0,
+                          "Taryfa": "G11", "Inwestycja": 0, **r})
+
+        pv_opts = [0] + ([3, 5, 10] if has_roof else [])
+        bess_opts = [0] + ([10, 30] if has_garage else [])
+        tariff_opts = [(False, "G11"), (True, "Pstryk")] if has_garage else [(False, "G11")]
+
+        n_total = len(pv_opts) * len(bess_opts) * len(tariff_opts)
+        progress = st.progress(0, text="Optymalizacja HiGHS LP...")
+        done = 0
+
+        for pv in pv_opts:
+            for bess in bess_opts:
+                for dyn, tname in tariff_opts:
+                    r = calculate_tco_quick(
+                        vehicle_price_bev, "BEV", is_new, annual_mileage,
+                        period_years, city_pct,
+                        city_kwh=bev_city_kwh, highway_kwh=bev_highway_kwh,
+                        battery_cap=battery_capacity, pv_kwp=pv, bess_kwh=bess,
+                        has_home_charger=has_garage, has_dynamic_tariff=dyn,
+                        has_old_pv=has_old_pv, suc_distance=suc_distance,
+                        use_tax=use_tax_shield, tax_rate=tax_rate)
+                    invest = 0
+                    if include_invest:
+                        invest = pv * PV_COST_PER_KWP + bess * BESS_COST_PER_KWH
+                    r["tco"] += invest
+                    r["monthly"] = r["tco"] / (period_years * 12)
+                    r["per_km"] = r["tco"] / (annual_mileage * period_years)
+                    scenarios.append({
+                        "Konfig.": f"BEV: {bev_model}", "PV": pv, "BESS": bess,
+                        "Taryfa": tname, "Inwestycja": invest, **r,
+                    })
+                    done += 1
+                    progress.progress(done / n_total, text=f"HiGHS LP: {done}/{n_total}")
+
+        progress.empty()
+        df_s = pd.DataFrame(scenarios).sort_values("tco")
+
+        best = df_s.iloc[0]
+        st.success(
+            f"**Rekomendacja HiGHS:** {best['Konfig.']} | "
+            f"PV: {best['PV']} kWp | BESS: {best['BESS']} kWh | {best['Taryfa']}\n\n"
+            f"TCO: **{best['tco']:,.0f} zł** ({best['per_km']:.2f} zł/km, "
+            f"{best['monthly']:,.0f} zł/mies.)"
+        )
+
+        in_budget = df_s[df_s["monthly"] <= budget_monthly]
+        if len(in_budget) > 0 and in_budget.iloc[0].name != best.name:
+            bb = in_budget.iloc[0]
+            st.info(
+                f"**Najlepsze w budżecie {budget_monthly:,} zł/mies.:** {bb['Konfig.']} | "
+                f"PV: {bb['PV']} kWp | BESS: {bb['BESS']} kWh | {bb['Taryfa']}\n\n"
+                f"TCO: **{bb['tco']:,.0f} zł** ({bb['monthly']:,.0f} zł/mies.)"
+            )
+
+        # Bar chart top 8
+        top_n = min(8, len(df_s))
+        fig_adv = go.Figure()
+        fig_adv.add_trace(go.Bar(
+            x=[f"{r['Konfig.'].split(':')[0]}\nPV:{r['PV']} BESS:{r['BESS']}\n{r['Taryfa']}"
+               for _, r in df_s.head(top_n).iterrows()],
+            y=df_s.head(top_n)["tco"],
+            marker_color=["#22c55e" if "BEV" in r["Konfig."] else "#ef4444"
+                          for _, r in df_s.head(top_n).iterrows()],
+            text=df_s.head(top_n)["tco"].apply(lambda x: f"{x:,.0f}"),
+            textposition="outside",
+        ))
+        fig_adv.update_layout(
+            title=f"Top {top_n} konfiguracji wg TCO ({period_years} lata, HiGHS LP)",
+            yaxis_title="TCO (zł)", height=450,
+        )
+        st.plotly_chart(fig_adv, use_container_width=True)
+
+        # Full table
+        show_df = df_s[["Konfig.", "PV", "BESS", "Taryfa", "Inwestycja",
+                        "tco", "energy", "maint", "per_km", "monthly"]].copy()
+        show_df.columns = ["Konfiguracja", "PV (kWp)", "BESS (kWh)", "Taryfa",
+                           "Inwestycja PV+BESS", "TCO (zł)", "Energia (zł)",
+                           "Serwis (zł)", "zł/km", "zł/mies."]
+        for c in ["Inwestycja PV+BESS", "TCO (zł)", "Energia (zł)", "Serwis (zł)", "zł/mies."]:
+            show_df[c] = show_df[c].apply(lambda x: f"{x:,.0f}")
+        show_df["zł/km"] = show_df["zł/km"].apply(lambda x: f"{x:.2f}")
+        st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+# ---- MODE B: BREAKEVEN ----
+elif "Punkt zwrotny" in opt_mode:
+    st.subheader("Punkt zwrotny – kiedy BEV wygrywa z ICE?")
+    st.markdown(
+        "Mapa ciepła: dla jakiego przebiegu i ceny paliwa **BEV** ma niższe TCO? "
+        "Koszt energii BEV obliczony z optymalizacji HiGHS LP (jedno uruchomienie referencyjne)."
+    )
+
+    if st.button("Oblicz mapę punktu zwrotnego (HiGHS)", key="btn_breakeven"):
+        with st.spinner("Optymalizacja HiGHS (referencyjne ładowanie BEV)..."):
+            mkm_ref = np.array([annual_mileage * d / 365 for d in DAYS_IN_MONTH])
+            maint_ice_rate = calculate_maintenance_cost(
+                segment_idx_ice, 100_000, "ICE", is_new)["per_km"]
+            maint_bev_rate = calculate_maintenance_cost(
+                segment_idx_bev, 100_000, "BEV", is_new)["per_km"]
+
+            dem_ref, _ = calc_annual_consumption_bev(
+                bev_city_kwh, bev_highway_kwh, city_pct, mkm_ref)
+            ch_ref = optimize_charging(
+                dem_ref, battery_capacity, pv_kwp, bess_kwh,
+                has_home_charger, has_dynamic_tariff, has_old_pv,
+                suc_distance, annual_mileage)
+            bev_energy_per_km = ch_ref["total_cost"] / annual_mileage if annual_mileage > 0 else 0.5
+
+            _, ice_fuel_ref, _ = calc_annual_fuel_ice(
+                ice_city_l, ice_highway_l, city_pct, mkm_ref, 1.0)
+            ice_l_per_km = ice_fuel_ref / annual_mileage if annual_mileage > 0 else 0.07
+
+            ins_ice_a = estimate_insurance(vehicle_price_ice, "ICE")
+            ins_bev_a = estimate_insurance(vehicle_price_bev, "BEV")
+
+        mileages = np.linspace(5_000, 80_000, 16)
+        fuel_prices_sweep = np.linspace(4.0, 12.0, 17)
+        diff_matrix = np.zeros((len(fuel_prices_sweep), len(mileages)))
+
+        for i, fp in enumerate(fuel_prices_sweep):
+            for j, mil in enumerate(mileages):
+                tkm = mil * period_years
+                f_ice = ice_l_per_km * fp * tkm
+                m_ice = maint_ice_rate * tkm
+                i_ice = ins_ice_a * period_years
+                tx_ice = calculate_tax_shield(
+                    vehicle_price_ice, "ICE", ice_l_per_km * fp * mil,
+                    ins_ice_a, period_years, tax_rate) if use_tax_shield else 0
+                tco_i = vehicle_price_ice + f_ice + m_ice + i_ice - tx_ice
+
+                e_bev = bev_energy_per_km * tkm
+                m_bev = maint_bev_rate * tkm
+                i_bev = ins_bev_a * period_years
+                tx_bev = calculate_tax_shield(
+                    vehicle_price_bev, "BEV", bev_energy_per_km * mil,
+                    ins_bev_a, period_years, tax_rate) if use_tax_shield else 0
+                tco_b = vehicle_price_bev + e_bev + m_bev + i_bev - tx_bev
+
+                diff_matrix[i, j] = tco_i - tco_b  # >0 = BEV wins
+
+        fig_bp = go.Figure()
+        fig_bp.add_trace(go.Heatmap(
+            z=diff_matrix, x=mileages / 1000, y=fuel_prices_sweep,
+            colorscale=[[0, "#ef4444"], [0.5, "#fef3c7"], [1, "#22c55e"]],
+            zmid=0,
+            colorbar=dict(title="ICE−BEV (zł)"),
+            hovertemplate=(
+                "Przebieg: %{x:.0f}k km/rok<br>"
+                "Paliwo: %{y:.2f} zł/l<br>"
+                "Różnica: %{z:,.0f} zł<extra></extra>"
+            ),
+        ))
+        fig_bp.add_trace(go.Contour(
+            z=diff_matrix, x=mileages / 1000, y=fuel_prices_sweep,
+            contours=dict(start=0, end=0, size=1, showlabels=True,
+                          labelfont=dict(size=14, color="black")),
+            line=dict(width=3, color="black"),
+            showscale=False, name="Breakeven",
+        ))
+        fig_bp.add_trace(go.Scatter(
+            x=[annual_mileage / 1000], y=[fuel_price],
+            mode="markers+text", name="Twoje parametry",
+            marker=dict(size=15, color="white", symbol="diamond",
+                        line=dict(width=3, color="black")),
+            text=["TY"], textposition="top center",
+            textfont=dict(size=14, color="black"),
+        ))
+        fig_bp.update_layout(
+            title=(
+                f"Mapa TCO: zielone = BEV tańsze "
+                f"({period_years} lata, {ice_model} vs {bev_model})"
+            ),
+            xaxis_title="Roczny przebieg (tys. km)",
+            yaxis_title="Cena paliwa (zł/l)",
+            height=550,
+        )
+        st.plotly_chart(fig_bp, use_container_width=True)
+
+        # Find breakeven at current fuel price
+        fp_idx = np.argmin(np.abs(fuel_prices_sweep - fuel_price))
+        row = diff_matrix[fp_idx, :]
+        if np.all(row > 0):
+            st.success(
+                f"BEV wygrywa przy **każdym przebiegu** przy cenie paliwa "
+                f"{fuel_price:.2f} zł/l (okres {period_years} lata)!"
+            )
+        elif np.all(row < 0):
+            st.warning(
+                f"ICE wygrywa przy **każdym przebiegu** przy cenie paliwa "
+                f"{fuel_price:.2f} zł/l. Rozważ tańsze BEV lub PV."
+            )
+        else:
+            for j in range(len(mileages) - 1):
+                if row[j] <= 0 < row[j + 1]:
+                    frac = -row[j] / (row[j + 1] - row[j]) if row[j + 1] != row[j] else 0.5
+                    be_km = mileages[j] + frac * (mileages[j + 1] - mileages[j])
+                    st.info(
+                        f"Przy cenie paliwa **{fuel_price:.2f} zł/l** BEV wygrywa od "
+                        f"**{be_km:,.0f} km/rok** ({period_years} lata)."
+                    )
+                    break
+
+        st.caption(
+            f"Koszt energii BEV: {bev_energy_per_km:.3f} zł/km (z optymalizacji HiGHS LP). "
+            f"Spalanie ICE: {ice_l_per_km * 100:.1f} l/100km (z uwzględnieniem temperatury). "
+            f"Dane rynkowe i podatkowe 2025/2026."
+        )
+
+# ---- MODE C: PORÓWNANIE FLOTY ----
+else:
+    st.subheader("Porównanie floty – ranking modeli")
+    st.markdown(
+        "Dodaj pojazdy do porównania. Dla **BEV** podaj zużycie w kWh/100km, "
+        "dla **ICE** w l/100km. Każdy BEV przechodzi optymalizację HiGHS LP."
+    )
+
+    default_cars = pd.DataFrame([
+        {"Model": ice_model, "Cena (zł)": vehicle_price_ice, "Napęd": "ICE",
+         "Miasto (/100km)": ice_city_l, "Trasa (/100km)": ice_highway_l},
+        {"Model": bev_model, "Cena (zł)": vehicle_price_bev, "Napęd": "BEV",
+         "Miasto (/100km)": bev_city_kwh, "Trasa (/100km)": bev_highway_kwh},
+        {"Model": "Dacia Spring 2025", "Cena (zł)": 85_000, "Napęd": "BEV",
+         "Miasto (/100km)": 14.0, "Trasa (/100km)": 17.0},
+    ])
+
+    edited_cars = st.data_editor(
+        default_cars,
+        column_config={
+            "Napęd": st.column_config.SelectboxColumn(options=["ICE", "BEV"]),
+            "Cena (zł)": st.column_config.NumberColumn(
+                min_value=5000, max_value=1_000_000, step=5000),
+            "Miasto (/100km)": st.column_config.NumberColumn(
+                min_value=3.0, max_value=40.0, step=0.5),
+            "Trasa (/100km)": st.column_config.NumberColumn(
+                min_value=3.0, max_value=40.0, step=0.5),
+        },
+        num_rows="dynamic",
+        use_container_width=True,
+        key="portfolio_editor",
+    )
+
+    if st.button("Porównaj wszystkie modele (HiGHS)", key="btn_portfolio"):
+        valid_cars = edited_cars.dropna(subset=["Model", "Cena (zł)", "Napęd"])
+        if len(valid_cars) < 2:
+            st.warning("Dodaj co najmniej 2 pojazdy do porównania.")
+        else:
+            results = []
+            progress = st.progress(0, text="Obliczam TCO (HiGHS LP)...")
+
+            for idx, (_, car) in enumerate(valid_cars.iterrows()):
+                etype = car["Napęd"]
+                if etype == "ICE":
+                    r = calculate_tco_quick(
+                        car["Cena (zł)"], "ICE", is_new, annual_mileage,
+                        period_years, city_pct,
+                        fuel_price=fuel_price,
+                        city_l=car["Miasto (/100km)"],
+                        highway_l=car["Trasa (/100km)"],
+                        use_tax=use_tax_shield, tax_rate=tax_rate)
+                else:
+                    r = calculate_tco_quick(
+                        car["Cena (zł)"], "BEV", is_new, annual_mileage,
+                        period_years, city_pct,
+                        city_kwh=car["Miasto (/100km)"],
+                        highway_kwh=car["Trasa (/100km)"],
+                        battery_cap=battery_capacity, pv_kwp=pv_kwp,
+                        bess_kwh=bess_kwh, has_home_charger=has_home_charger,
+                        has_dynamic_tariff=has_dynamic_tariff,
+                        has_old_pv=has_old_pv, suc_distance=suc_distance,
+                        use_tax=use_tax_shield, tax_rate=tax_rate)
+                results.append({
+                    "Model": car["Model"], "Napęd": etype,
+                    "Cena": car["Cena (zł)"], **r,
+                })
+                progress.progress((idx + 1) / len(valid_cars),
+                                  text=f"HiGHS LP: {idx + 1}/{len(valid_cars)}")
+
+            progress.empty()
+            df_p = pd.DataFrame(results).sort_values("tco")
+
+            w = df_p.iloc[0]
+            st.success(
+                f"**Zwycięzca (HiGHS):** {w['Model']} ({w['Napęd']}) – "
+                f"TCO **{w['tco']:,.0f} zł** ({w['per_km']:.2f} zł/km, "
+                f"{w['monthly']:,.0f} zł/mies.)"
+            )
+
+            # Bar chart
+            colors = ["#22c55e" if r["Napęd"] == "BEV" else "#ef4444"
+                      for _, r in df_p.iterrows()]
+            fig_p = go.Figure()
+            fig_p.add_trace(go.Bar(
+                x=df_p["Model"] + " (" + df_p["Napęd"] + ")",
+                y=df_p["tco"],
+                marker_color=colors,
+                text=df_p["tco"].apply(lambda x: f"{x:,.0f}"),
+                textposition="outside",
+            ))
+            fig_p.update_layout(
+                title=f"Ranking TCO – {period_years} lata, {annual_mileage:,} km/rok (HiGHS LP)",
+                yaxis_title="TCO (zł)", height=450,
+            )
+            st.plotly_chart(fig_p, use_container_width=True)
+
+            # Stacked bar – breakdown
+            fig_stack = go.Figure()
+            models_sorted = df_p["Model"] + " (" + df_p["Napęd"] + ")"
+            fig_stack.add_trace(go.Bar(
+                name="Zakup", x=models_sorted, y=df_p["Cena"], marker_color="#94a3b8"))
+            fig_stack.add_trace(go.Bar(
+                name="Energia/Paliwo", x=models_sorted, y=df_p["energy"], marker_color="#f59e0b"))
+            fig_stack.add_trace(go.Bar(
+                name="Serwis", x=models_sorted, y=df_p["maint"], marker_color="#ef4444"))
+            fig_stack.add_trace(go.Bar(
+                name="Ubezpieczenie", x=models_sorted, y=df_p["ins"], marker_color="#8b5cf6"))
+            fig_stack.add_trace(go.Bar(
+                name="Tarcza podatkowa", x=models_sorted, y=-df_p["tax"], marker_color="#22c55e"))
+            fig_stack.update_layout(
+                title="Struktura TCO – rozbicie kosztów",
+                barmode="relative", yaxis_title="PLN", height=450,
+            )
+            st.plotly_chart(fig_stack, use_container_width=True)
+
+            # Detailed table
+            show_p = df_p[["Model", "Napęd", "Cena", "tco", "energy",
+                           "maint", "ins", "tax", "per_km", "monthly"]].copy()
+            show_p.columns = ["Model", "Napęd", "Cena zakupu", "TCO",
+                              "Energia/Paliwo", "Serwis", "Ubezp.",
+                              "Tarcza pod.", "zł/km", "zł/mies."]
+            for c in ["Cena zakupu", "TCO", "Energia/Paliwo", "Serwis",
+                       "Ubezp.", "Tarcza pod.", "zł/mies."]:
+                show_p[c] = show_p[c].apply(lambda x: f"{x:,.0f}")
+            show_p["zł/km"] = show_p["zł/km"].apply(lambda x: f"{x:.2f}")
+            st.dataframe(show_p, use_container_width=True, hide_index=True)
+
+# ---------------------------------------------------------------------------
+# STOPKA
+# ---------------------------------------------------------------------------
+st.divider()
+col_f1, col_f2, col_f3 = st.columns([1, 2, 1])
+with col_f2:
+    st.image("logo.png", width=280)
+    st.markdown(
+        '<div style="text-align: center; color: #666; font-size: 0.85em;">'
+        '© 2026 <strong>Paweł Mamcarz</strong>. Wszelkie prawa zastrzeżone.<br>'
+        'Optymalizacja z użyciem <strong>HiGHS</strong> (Linear Programming). '
+        'Dane rynkowe 2025/2026, bieżące ceny paliw.<br>'
+        '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
+        ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
+        ' · +48 535 535 221'
+        '</div>',
+        unsafe_allow_html=True,
+    )
