@@ -988,7 +988,58 @@ class TestTCOQuickLPG:
 
 class TestVersion23:
     def test_version_23(self):
-        assert app.APP_VERSION == "23.4"
+        assert app.APP_VERSION == "23.5"
+
+
+class TestBudgetBeaters:
+    """Testy dla BUDGET_BEATER_PRESETS — najtańsze 10-letnie auta."""
+
+    def test_presets_exist(self):
+        assert hasattr(app, "BUDGET_BEATER_PRESETS")
+        assert len(app.BUDGET_BEATER_PRESETS) >= 3
+
+    def test_presets_have_required_keys(self):
+        for name, p in app.BUDGET_BEATER_PRESETS.items():
+            assert "price" in p, f"{name} brak price"
+            assert "city_l" in p, f"{name} brak city_l"
+            assert "hwy_l" in p, f"{name} brak hwy_l"
+            assert "fuel" in p, f"{name} brak fuel"
+            assert "age" in p, f"{name} brak age"
+
+    def test_prices_are_cheap(self):
+        """Budget beaters powinny kosztować < 25k zł."""
+        for name, p in app.BUDGET_BEATER_PRESETS.items():
+            assert p["price"] <= 25_000, f"{name} za drogi: {p['price']}"
+
+    def test_ages_are_10_plus(self):
+        """Budget beaters powinny mieć 10+ lat."""
+        for name, p in app.BUDGET_BEATER_PRESETS.items():
+            assert p["age"] >= 10, f"{name} za młody: {p['age']} lat"
+
+    def test_tco_computable(self):
+        """Można obliczyć TCO dla każdego budget beater."""
+        for name, p in app.BUDGET_BEATER_PRESETS.items():
+            r = app.calculate_tco_quick(
+                vehicle_price=p["price"], engine_type="ICE", is_new=False,
+                annual_mileage=12_000, period_years=5,
+                road_split=(0.50, 0.30, 0.20),
+                fuel_price=6.50,
+                city_l=p["city_l"], highway_l=p["hwy_l"],
+                fuel_type_idx=p.get("fuel", 0),
+                use_tax=False,
+            )
+            assert r["monthly"] > 0, f"{name} monthly=0"
+            assert r["tco_net"] > 0, f"{name} tco_net=0"
+
+    def test_beaters_cheaper_than_used_presets(self):
+        """Budget beaters powinny być tańsze (cena) niż najtańsze used presety."""
+        cheapest_used = min(
+            p["price"]
+            for seg_models in app.ICE_PRESETS_USED.values()
+            for p in seg_models.values()
+        )
+        cheapest_beater = min(p["price"] for p in app.BUDGET_BEATER_PRESETS.values())
+        assert cheapest_beater < cheapest_used
 
 
 class TestAgingCost:

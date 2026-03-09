@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "23.4"
+APP_VERSION = "23.5"
 
 import math
 import re
@@ -55,7 +55,17 @@ st.set_page_config(
 if _HAS_ANALYTICS:
     sta.start_tracking(save_to_json="analytics.json")
 
-st.title("Czym pojadę w 2026 — zmieniać czy kupić nowe? Jakie?")
+_col_title, _col_home = st.columns([9, 1])
+with _col_title:
+    st.title("Czym pojadę w 2026 — zmieniać czy kupić nowe? Jakie?")
+with _col_home:
+    if st.session_state.get("wizard_step", 0) > 0:
+        st.markdown("")  # spacer — wyrównanie z tytułem
+        if st.button("🏠 Start", key="home_btn", help="Wróć do początku wizarda"):
+            st.session_state["wizard_step"] = 0
+            st.session_state["wizard_data"] = {}
+            st.session_state["wizard_results"] = None
+            st.rerun()
 st.caption(
     "Porównanie pełnych kosztów posiadania auta elektrycznego, hybrydowego i spalinowego. "
     "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
@@ -337,6 +347,29 @@ ALT_TRANSPORT = {
 
 # Próg budżetowy — poniżej tego wizard sugeruje alt transport
 ALT_TRANSPORT_BUDGET_THRESHOLD = 1000  # zł/mies.
+
+# ---------------------------------------------------------------------------
+# BUDGET BEATERS — najtańsze 10-letnie samochody do porównania
+# Pokazywane gdy budżet nie pozwala na normalne auto z presetu.
+# Ceny: OTOMOTO / OLX / AAA AUTO średnie 2025 dla aut 10-13 lat
+# ---------------------------------------------------------------------------
+BUDGET_BEATER_PRESETS = {
+    "Toyota Yaris II 1.3 2015": {
+        "price": 18_000, "city_l": 6.5, "hwy_l": 5.5, "fuel": 0, "age": 11,
+    },
+    "Skoda Fabia II 1.2 2014": {
+        "price": 14_000, "city_l": 7.2, "hwy_l": 5.2, "fuel": 0, "age": 12,
+    },
+    "Opel Corsa D 1.2 2014": {
+        "price": 13_000, "city_l": 7.5, "hwy_l": 5.5, "fuel": 0, "age": 12,
+    },
+    "Fiat Punto 1.2 2013": {
+        "price": 10_000, "city_l": 7.8, "hwy_l": 5.8, "fuel": 0, "age": 13,
+    },
+    "Renault Clio III 1.2 2013": {
+        "price": 11_000, "city_l": 7.5, "hwy_l": 5.5, "fuel": 0, "age": 13,
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Koszty starzenia: nieplanowane naprawy + korozja (zł/rok) wg segmentu
@@ -1771,6 +1804,27 @@ def run_wizard_analysis(wizard_data, fuel_data):
 
         results["suggest_no_car"] = suggest_no_car
 
+        # --- Budget beaters: najtańsze 10-letnie auta (zawsze gdy szukamy auta) ---
+        beaters = []
+        for bb_name, bb_p in BUDGET_BEATER_PRESETS.items():
+            r_bb = calculate_tco_quick(
+                vehicle_price=bb_p["price"], engine_type="ICE", is_new=False,
+                annual_mileage=annual_mileage, period_years=period, road_split=road_split,
+                fuel_price=fuel_data["pb95"],
+                city_l=bb_p["city_l"], highway_l=bb_p["hwy_l"],
+                fuel_type_idx=bb_p.get("fuel", 0),
+                use_tax=False,
+            )
+            beaters.append({
+                "name": bb_name,
+                "price": bb_p["price"],
+                "age": bb_p.get("age", 10),
+                "monthly": r_bb["monthly"],
+                "tco_net": r_bb["tco_net"],
+            })
+        beaters.sort(key=lambda x: x["monthly"])
+        results["budget_beaters"] = beaters
+
     # --- Werdykt ---
     has_car = wizard_data.get("has_car", False)
     if has_car and "keep" in results:
@@ -2346,6 +2400,28 @@ def _render_wizard(fuel_data):
                         )
                         st.caption(alt["desc"])
 
+            # --- Budget beaters: najtańsze 10-letnie auta ---
+            _beaters = results.get("budget_beaters", [])
+            if _beaters:
+                st.divider()
+                st.markdown("### 🚗 A może najtańsze używane auto (10+ lat)?")
+                st.caption(
+                    "Stare auta mają niską cenę zakupu, ale wyższe koszty napraw, "
+                    "spalania i ubezpieczenia. Oto realne koszty posiadania:"
+                )
+                _bb_cols = st.columns(min(len(_beaters), 5))
+                for _bi, _bb in enumerate(_beaters[:5]):
+                    with _bb_cols[_bi]:
+                        _in_budget = _bb["monthly"] <= wdata.get("budget_monthly", 9999)
+                        _icon = "✅" if _in_budget else "⚠️"
+                        st.metric(
+                            f"{_icon} {_bb['name'][:25]}",
+                            f'{_bb["monthly"]:,.0f} zł/mies.',
+                        )
+                        st.caption(
+                            f"Cena: {_bb['price']:,.0f} zł · {_bb['age']} lat"
+                        )
+
             # --- Auta powyżej budżetu (collapsed) ---
             _over_budget = results.get("over_budget", {})
             if _over_budget:
@@ -2382,6 +2458,13 @@ def _render_wizard(fuel_data):
                 _chart_names.append(_alt["name"][:20])
                 _chart_values.append(_alt["tco_total"])
                 _chart_colors.append("#3b82f6")  # niebieski
+
+            # Dodaj najtańsze budget beaters (top 2, pomarańczowe)
+            _bb_chart = results.get("budget_beaters", [])[:2]
+            for _bb in _bb_chart:
+                _chart_names.append(f"🚗 {_bb['name'][:15]}")
+                _chart_values.append(_bb["tco_net"])
+                _chart_colors.append("#fb923c")  # pomarańczowy — stare auto
 
             # Dodaj auta powyżej budżetu (szare, dla skali porównawczej)
             _over = results.get("over_budget", {})
@@ -2455,15 +2538,25 @@ def _render_wizard(fuel_data):
                         )
                     if _cheapest_car_m > 0:
                         _insights_lines.append(
-                            f"- Najtańsze auto to ~**{_cheapest_car_m:,.0f} zł/mies.** "
+                            f"- Najtańsze auto (nowe/kilkuletnie) to ~**{_cheapest_car_m:,.0f} zł/mies.** "
                             f"(zakup + paliwo + serwis + ubezpieczenie)"
+                        )
+                    # Dodaj info o budget beaters
+                    _bb_list = results.get("budget_beaters", [])
+                    if _bb_list:
+                        _bb_cheapest = _bb_list[0]
+                        _insights_lines.append(
+                            f"- Najtańsze **10+ letnie** auto: **{_bb_cheapest['name']}** "
+                            f"za ~**{_bb_cheapest['monthly']:,.0f} zł/mies.** "
+                            f"(cena: {_bb_cheapest['price']:,.0f} zł) — ale uwaga na naprawy!"
                         )
                     if _cheapest_alt and _cheapest_car_m > 0:
                         _save_m = _cheapest_car_m - _cheapest_alt["monthly"]
                         if _save_m > 0:
                             _insights_lines.append(
                                 f"- Oszczędzasz **{_save_m:,.0f} zł/mies.** "
-                                f"(**{_save_m * 12 * period:,.0f} zł** w {period} lat)"
+                                f"(**{_save_m * 12 * period:,.0f} zł** w {period} lat) "
+                                f"rezygnując z auta"
                             )
                     _insights_lines.append(
                         f"- 💡 **Tip**: łącz komunikację z rowerem/hulajnogą i okazjonalnie Uber — "
