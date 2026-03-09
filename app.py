@@ -1426,12 +1426,20 @@ BEV_PRESETS_NEW = {
     "E – Wyższy": {
         "Tesla Model Y LR AWD": {"price": 219_000, "city_kwh": 16.0, "hwy_kwh": 19.0, "bat": 75},
         "BMW iX xDrive40": {"price": 310_000, "city_kwh": 18.0, "hwy_kwh": 21.0, "bat": 77},
+        "BMW iX xDrive60": {"price": 541_000, "city_kwh": 18.0, "hwy_kwh": 25.0, "bat": 109},
         "Mercedes EQE 300": {"price": 350_000, "city_kwh": 16.0, "hwy_kwh": 18.5, "bat": 90},
+        "Mercedes EQS 450+": {"price": 507_000, "city_kwh": 16.0, "hwy_kwh": 23.0, "bat": 108},
+        "Hongqi E-HS9 120 kWh": {"price": 446_000, "city_kwh": 22.0, "hwy_kwh": 32.0, "bat": 112},
     },
     "Fun Car 🏎️": {
-        "Tesla Roadster (2027)": {"price": 850_000, "city_kwh": 15.0, "hwy_kwh": 20.0, "bat": 200},
+        "Tesla Roadster (2027)": {"price": 850_000, "city_kwh": 15.0, "hwy_kwh": 20.0, "bat": 190},
         "Xiaomi SU7 Ultra": {"price": 350_000, "city_kwh": 18.0, "hwy_kwh": 24.0, "bat": 94},
         "MG Cyberster GT": {"price": 280_000, "city_kwh": 18.0, "hwy_kwh": 23.0, "bat": 74},
+    },
+    "Redneck 🤠": {
+        "Chevrolet Silverado EV": {"price": 400_000, "city_kwh": 29.0, "hwy_kwh": 34.0, "bat": 205},
+        "GMC Sierra EV Denali": {"price": 450_000, "city_kwh": 27.0, "hwy_kwh": 32.0, "bat": 205},
+        "GMC Hummer EV SUV 3X": {"price": 500_000, "city_kwh": 33.0, "hwy_kwh": 42.0, "bat": 173},
     },
 }
 BEV_PRESETS_USED = {
@@ -2013,7 +2021,7 @@ st.subheader("Parametry BEV – bateria i ładowanie")
 col3, col4 = st.columns(2)
 with col3:
     battery_capacity = st.number_input(
-        "Pojemność baterii BEV (kWh)", min_value=20, max_value=200, value=bev_p["bat"], step=5
+        "Pojemność baterii BEV (kWh)", min_value=20, max_value=210, value=bev_p["bat"], step=5
     )
     has_home_charger = st.checkbox("Ładowarka domowa (wallbox AC 11 kW)", value=True)
 with col4:
