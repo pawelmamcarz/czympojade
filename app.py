@@ -6,6 +6,11 @@ APP_VERSION = "22.1"
 
 import re
 import streamlit as st
+try:
+    import streamlit_analytics2 as sta
+    _HAS_ANALYTICS = True
+except ImportError:
+    _HAS_ANALYTICS = False
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -45,6 +50,9 @@ st.set_page_config(
     page_icon="⚡",
     layout="wide",
 )
+
+if _HAS_ANALYTICS:
+    sta.start_tracking(save_to_json="analytics.json")
 
 st.title("Czym pojadę w 2026 — jakie auto opłaca mi się kupić?")
 st.caption(
@@ -4350,3 +4358,6 @@ st.markdown(
     '</div>',
     unsafe_allow_html=True,
 )
+
+if _HAS_ANALYTICS:
+    sta.stop_tracking()

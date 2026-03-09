@@ -8,3 +8,4 @@ beautifulsoup4>=4.12.0
 scikit-learn>=1.3.0
 fpdf2>=2.7.0
 supabase>=2.0.0
+streamlit-analytics2>=0.10.0
