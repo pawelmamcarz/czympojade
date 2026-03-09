@@ -1583,6 +1583,19 @@ HYB_PRESETS_USED = {
 
 CAR_SEGMENTS = ["A – Mini", "B – Małe", "C – Kompakt", "D – Średni", "E – Wyższy"]
 
+# Segment labels z emoji (do radio)
+_SEG_EMOJI = {
+    "Własne parametry": "🛠️ Własne",
+    "A – Mini": "🛵 Mini",
+    "B – Małe": "🚗 Małe",
+    "C – Kompakt": "🚙 Kompakt",
+    "D – Średni": "🚐 Średni",
+    "E – Wyższy": "🏆 Wyższy",
+    "Fun Car 🏎️": "🏎️ Fun Car",
+    "Redneck 🤠": "🤠 Redneck",
+}
+_SEG_REVERSE = {v: k for k, v in _SEG_EMOJI.items()}
+
 # ---------------------------------------------------------------------------
 # ODCZYT PARAMETRÓW Z URL (query_params) — umożliwia udostępnianie linku
 # ---------------------------------------------------------------------------
@@ -1604,12 +1617,13 @@ with col_ice:
         help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
     ) == "Nowy"
     ice_presets_all = ICE_PRESETS_NEW if is_new_ice else ICE_PRESETS_USED
-    ice_segment_opts = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️"]
-    ice_segment = st.selectbox(
-        "Segment ICE", ice_segment_opts, index=3, key="seg_ice",
-        help="A=mini, B=małe, C=kompakt, D=średni/SUV, E=wyższy. "
-             "Własne parametry = wpisz ręcznie.",
+    _ice_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️"]
+    _ice_seg_labels = [_SEG_EMOJI[k] for k in _ice_seg_keys]
+    _ice_seg_pick = st.radio(
+        "Segment ICE", _ice_seg_labels, index=3, key="seg_ice",
+        horizontal=True,
     )
+    ice_segment = _SEG_REVERSE[_ice_seg_pick]
     if ice_segment == "Własne parametry":
         ice_p = _CUSTOM_ICE_NEW if is_new_ice else _CUSTOM_ICE_USED
         ice_preset_name = "Własne parametry"
@@ -1688,11 +1702,13 @@ with col_hyb:
         help="Nowy = auto z salonu. Używany = z rynku wtórnego.",
     ) == "Nowy"
     hyb_presets_all = HYB_PRESETS_NEW if is_new_hyb else HYB_PRESETS_USED
-    hyb_segment_opts = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️"]
-    hyb_segment = st.selectbox(
-        "Segment Hybryda", hyb_segment_opts, index=4, key="seg_hyb",
-        help="A=mini, B=małe, C=kompakt, D=średni/SUV, E=wyższy.",
+    _hyb_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️"]
+    _hyb_seg_labels = [_SEG_EMOJI[k] for k in _hyb_seg_keys]
+    _hyb_seg_pick = st.radio(
+        "Segment Hybryda", _hyb_seg_labels, index=4, key="seg_hyb",
+        horizontal=True,
     )
+    hyb_segment = _SEG_REVERSE[_hyb_seg_pick]
     if hyb_segment == "Własne parametry":
         hyb_p = _CUSTOM_HYB_NEW if is_new_hyb else _CUSTOM_HYB_USED
         hyb_preset_name = "Własne parametry"
@@ -1774,12 +1790,13 @@ with col_bev:
         help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
     ) == "Nowy"
     bev_presets_all = BEV_PRESETS_NEW if is_new_bev else BEV_PRESETS_USED
-    bev_segment_opts = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
-    bev_segment = st.selectbox(
-        "Segment BEV", bev_segment_opts, index=4, key="seg_bev",
-        help="A=mini, B=małe, C=kompakt, D=średni/SUV, E=wyższy. "
-             "Własne parametry = wpisz ręcznie.",
+    _bev_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
+    _bev_seg_labels = [_SEG_EMOJI[k] for k in _bev_seg_keys]
+    _bev_seg_pick = st.radio(
+        "Segment BEV", _bev_seg_labels, index=4, key="seg_bev",
+        horizontal=True,
     )
+    bev_segment = _SEG_REVERSE[_bev_seg_pick]
     if bev_segment == "Własne parametry":
         bev_p = _CUSTOM_BEV_NEW if is_new_bev else _CUSTOM_BEV_USED
         bev_preset_name = "Własne parametry"
