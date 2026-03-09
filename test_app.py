@@ -987,7 +987,7 @@ class TestTCOQuickLPG:
 
 class TestVersion23:
     def test_version_23(self):
-        assert app.APP_VERSION == "23.1"
+        assert app.APP_VERSION == "23.2"
 
 
 class TestAgingCost:
@@ -1047,6 +1047,62 @@ class TestAgingCost:
         small = app.calculate_aging_cost("B – Małe", 10, 150_000, 15_000, 5, "ICE")
         premium = app.calculate_aging_cost("E – Wyższy", 10, 150_000, 15_000, 5, "ICE")
         assert premium["total"] > small["total"]
+
+
+class TestEstimateCarValue:
+    """Testy krzywej deprecjacji (weryfikacja z danymi Otomoto 03/2026)."""
+
+    def test_new_car_full_price(self):
+        """Nowe auto = 100% ceny bazowej."""
+        assert app.estimate_car_value(130_000, 0) == 130_000
+
+    def test_5yr_kompakt_realistic(self):
+        """5-letni kompakt: 55-75k zł (Otomoto: Corolla 2021 ~65-70k)."""
+        val = app.estimate_car_value(130_000, 5)
+        assert 55_000 <= val <= 75_000
+
+    def test_10yr_kompakt_realistic(self):
+        """10-letni kompakt: 28-42k zł (Otomoto: Corolla 2016 ~30-35k)."""
+        val = app.estimate_car_value(130_000, 10)
+        assert 28_000 <= val <= 42_000
+
+    def test_15yr_kompakt_not_too_low(self):
+        """15-letni kompakt: >= 18k zł (stara formuła dawała ~11k, realne ~21k)."""
+        val = app.estimate_car_value(130_000, 15)
+        assert val >= 18_000
+
+    def test_15yr_much_higher_than_old_formula(self):
+        """Nowa formuła daje dużo więcej niż stara 0.85^age dla 15 lat."""
+        new_val = app.estimate_car_value(130_000, 15)
+        old_val = int(130_000 * (0.85 ** 15))  # ~11,384
+        assert new_val > old_val * 1.5  # co najmniej 50% więcej
+
+    def test_value_decreases_with_age(self):
+        """Wartość maleje monotonicznie z wiekiem."""
+        values = [app.estimate_car_value(130_000, age) for age in range(16)]
+        for i in range(1, len(values)):
+            assert values[i] <= values[i - 1]
+
+    def test_floor_value(self):
+        """Nawet bardzo stare auto ma minimalną wartość (floor 12%)."""
+        val = app.estimate_car_value(130_000, 30)
+        assert val >= 130_000 * 0.10  # powyżej 10% nawet przy 30 latach
+
+    def test_premium_15yr(self):
+        """15-letnie BMW 3: powinno być >= 30k (Otomoto: ~35-45k)."""
+        val = app.estimate_car_value(230_000, 15)
+        assert val >= 30_000
+
+    def test_reasoning_empty_for_new(self):
+        """Brak rozumowania dla nowego auta."""
+        text = app.estimate_car_value_reasoning(130_000, 0)
+        assert text == ""
+
+    def test_reasoning_not_empty_for_old(self):
+        """Rozumowanie widoczne dla starszych aut."""
+        text = app.estimate_car_value_reasoning(130_000, 10)
+        assert len(text) > 20
+        assert "%" in text
 
 
 if __name__ == "__main__":

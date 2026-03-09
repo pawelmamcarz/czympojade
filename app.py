@@ -2,8 +2,9 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "23.1"
+APP_VERSION = "23.2"
 
+import math
 import re
 import streamlit as st
 try:
@@ -297,6 +298,14 @@ AGING_START_YEAR = 8          # od tego roku życia auta ruszają koszty starzen
 AGING_MILEAGE_THRESHOLD = 150_000  # km — powyżej dodatkowy mnożnik
 AGING_GROWTH_RATE = 0.15     # +15% rocznie powyżej AGING_START_YEAR
 AGING_HIGH_MILEAGE_MULT = 1.3  # ×1.3 jeśli przebieg > threshold
+
+# ---------------------------------------------------------------------------
+# Deprecjacja – krzywa wartości rynkowej (weryfikacja: Otomoto 03/2026)
+# Formuła: retention = floor + (1 - floor) * exp(-rate * age)
+# Stare 0.85^age dawało 11k za 15-letniego kompakta; realna cena ~21k
+# ---------------------------------------------------------------------------
+DEPR_FLOOR = 0.12          # 12% – stare auto ciągle coś warte (blacha, silnik, części)
+DEPR_RATE = 0.18           # tempo spadku (kalibracja na Otomoto: Corolla, Golf, Yaris, BMW 3)
 
 # ---------------------------------------------------------------------------
 # SCT – Strefa Czystego Transportu (Warszawa 2026 / Kraków 2026)
@@ -993,6 +1002,46 @@ def calculate_maintenance_cost(
         total_per_km = total / mileage_km if mileage_km > 0 else 0
         return {"total": total, "per_km": total_per_km, "breakdown": breakdown,
                 "tesla_warranty": is_tesla and is_new}
+
+
+def estimate_car_value(base_price: int, age: int) -> int:
+    """Szacuj wartość rynkową auta (krzywa kalibrowana na Otomoto 03/2026).
+
+    Formuła: retention = DEPR_FLOOR + (1 - DEPR_FLOOR) * exp(-DEPR_RATE * age)
+    Daje realistyczne wartości:
+        Kompakt 130k nowy → ~64k (5 lat), ~35k (10 lat), ~23k (15 lat)
+    vs stara formuła 0.85^age:
+        Kompakt 130k nowy → ~58k (5 lat), ~26k (10 lat), ~11k (15 lat)
+    """
+    retention = DEPR_FLOOR + (1.0 - DEPR_FLOOR) * math.exp(-DEPR_RATE * age)
+    return max(int(base_price * retention), 3_000)
+
+
+def estimate_car_value_reasoning(base_price: int, age: int) -> str:
+    """Wygeneruj tekst rozumowania dlaczego auto tyle kosztuje."""
+    value = estimate_car_value(base_price, age)
+    retention_pct = value / base_price * 100
+
+    if age == 0:
+        return ""
+    elif age <= 3:
+        return (
+            f"📉 Auto {age}-letnie traci ok. **{100 - retention_pct:.0f}%** wartości "
+            f"(najszybsza deprecjacja w pierwszych 3 latach). "
+            f"Nowe: ~{base_price / 1000:.0f}k zł → teraz: ~{value / 1000:.0f}k zł."
+        )
+    elif age <= 8:
+        return (
+            f"📉 Auto {age}-letnie — wartość to ok. **{retention_pct:.0f}%** ceny nowego. "
+            f"Deprecjacja zwalnia, ale wciąż znacząca. "
+            f"Nowe: ~{base_price / 1000:.0f}k zł → teraz: ~{value / 1000:.0f}k zł."
+        )
+    else:
+        return (
+            f"📉 Auto {age}-letnie — wartość to już tylko **{retention_pct:.0f}%** ceny nowego "
+            f"(~{value / 1000:.0f}k zł). W tym wieku główne koszty to nie deprecjacja, "
+            f"a naprawy i korozja — to liczymy osobno."
+        )
 
 
 def calculate_aging_cost(segment_key, car_start_age, start_mileage, annual_km,
@@ -1774,17 +1823,21 @@ def _render_wizard(fuel_data):
                     value=wdata.get("car_age", 5),
                     key="wiz_age",
                 )
-                # Estymacja wartości z segmentu i wieku
+                # Estymacja wartości z segmentu i wieku (krzywa Otomoto)
                 base_price = WIZARD_SEGMENT_BASE_PRICE.get(current_segment, 130_000)
-                estimated_value = int(base_price * (0.85 ** car_age))
+                estimated_value = estimate_car_value(base_price, car_age)
                 car_value = st.number_input(
                     "Przybliżona wartość (zł)",
                     min_value=3_000, max_value=500_000,
                     value=wdata.get("car_value", estimated_value),
                     step=5_000,
                     key="wiz_value",
-                    help="Ile mniej-więcej warte jest Twoje auto dziś?",
+                    help="Ile mniej-więcej warte jest Twoje auto dziś? Estymacja na bazie Otomoto.",
                 )
+                # Rozumowanie – pokaż skąd ta cena
+                _reasoning = estimate_car_value_reasoning(base_price, car_age)
+                if _reasoning:
+                    st.caption(_reasoning)
 
                 monthly_km = st.number_input(
                     "Ile km miesięcznie?",
