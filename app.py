@@ -2072,19 +2072,26 @@ def _render_wizard(fuel_data):
                 base_price = WIZARD_SEGMENT_BASE_PRICE.get(current_segment, 130_000)
                 estimated_value = estimate_car_value(base_price, car_age)
 
-                # Reaktywność: jeśli zmienił się wiek lub segment, przelicz wartość
-                _prev_age = wdata.get("car_age")
-                _prev_seg = wdata.get("current_segment_label")
-                if ((_prev_age is not None and _prev_age != car_age)
-                        or (_prev_seg is not None and _prev_seg != current_segment)):
-                    _val_default = estimated_value
-                else:
-                    _val_default = wdata.get("car_value", estimated_value)
+                # Reaktywność: jeśli zmienił się wiek lub segment → przelicz wartość
+                _prev_age = wdata.get("_last_age")
+                _prev_seg = wdata.get("_last_segment")
+                _seg_or_age_changed = (
+                    (_prev_age is not None and _prev_age != car_age)
+                    or (_prev_seg is not None and _prev_seg != current_segment)
+                )
+                wdata["_last_age"] = car_age
+                wdata["_last_segment"] = current_segment
+
+                if _seg_or_age_changed:
+                    # Wymuś aktualizację widgetów — Streamlit ignoruje `value`
+                    # po pierwszym renderze, trzeba pisać do session_state
+                    st.session_state["wiz_value"] = estimated_value
+                    st.session_state["wiz_start_mileage"] = car_age * 15_000
 
                 car_value = st.number_input(
                     "Przybliżona wartość (zł)",
                     min_value=3_000, max_value=500_000,
-                    value=_val_default,
+                    value=wdata.get("car_value", estimated_value),
                     step=5_000,
                     key="wiz_value",
                     help="Ile mniej-więcej warte jest Twoje auto dziś? Estymacja na bazie Otomoto.",
