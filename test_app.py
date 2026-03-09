@@ -988,7 +988,7 @@ class TestTCOQuickLPG:
 
 class TestVersion23:
     def test_version_23(self):
-        assert app.APP_VERSION == "23.5"
+        assert app.APP_VERSION == "23.6"
 
 
 class TestBudgetBeaters:

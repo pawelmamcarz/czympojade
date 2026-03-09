@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "23.5"
+APP_VERSION = "23.6"
 
 import math
 import re
@@ -2373,6 +2373,91 @@ def _render_wizard(fuel_data):
                         delta_color="inverse",
                     )
                     st.caption(f"Cena: {results['hyb']['price']:,.0f} zł")
+
+            # --- Rozbicie kosztów (has_car) ---
+            with st.expander("📊 Skąd te kwoty? Rozbicie kosztów", expanded=False):
+                _brk_rows = []
+                _brk_cols_labels = []
+                _brk_data = {}
+
+                _scenarios = []
+                if "keep" in results:
+                    _scenarios.append(("🔴 Zachowaj", results["keep"]))
+                if "bev" in results:
+                    _scenarios.append(("🟢 BEV", results["bev"]))
+                if "hyb" in results:
+                    _scenarios.append(("🟠 Hybryda", results["hyb"]))
+
+                _cost_rows = [
+                    ("Amortyzacja (utrata wartości)", "dep"),
+                    ("Paliwo / prąd", "energy"),
+                    ("Serwis i naprawy", "maint"),
+                    ("Ubezpieczenie (OC+AC)", "ins"),
+                    ("Starzenie (nieplan. naprawy)", "_aging_total"),
+                    ("Tarcza podatkowa", "_tax_neg"),
+                    ("RAZEM (TCO netto)", "tco_net"),
+                ]
+
+                _brk_table = {}
+                for _s_label, _s_data in _scenarios:
+                    _col_vals = []
+                    for _row_label, _row_key in _cost_rows:
+                        if _row_key == "_aging_total":
+                            _v = _s_data.get("aging", {}).get("total", 0)
+                        elif _row_key == "_tax_neg":
+                            _v = -_s_data.get("tax", 0)
+                        else:
+                            _v = _s_data.get(_row_key, 0)
+                        _col_vals.append(_v)
+                    _brk_table[_s_label] = _col_vals
+
+                if _brk_table:
+                    _df_brk = pd.DataFrame(
+                        _brk_table,
+                        index=[r[0] for r in _cost_rows],
+                    )
+                    # Formatuj jako zł
+                    _df_styled = _df_brk.style.format("{:,.0f} zł")
+                    st.dataframe(_df_styled, use_container_width=True)
+                    st.caption(
+                        f"Wartości w zł za cały okres ({period} lat). "
+                        f"Amortyzacja = spadek wartości auta. "
+                        f"TCO netto = suma kosztów − tarcza podatkowa."
+                    )
+
+                    # Dodatkowy mini-chart: stacked bar rozbicie
+                    _fig_brk = go.Figure()
+                    _brk_categories = [r[0] for r in _cost_rows[:-1]]  # bez RAZEM
+                    _brk_scenario_names = [s[0] for s in _scenarios]
+                    _brk_cat_colors = ["#94a3b8", "#f59e0b", "#6366f1", "#06b6d4", "#ef4444", "#22c55e"]
+
+                    for _ci, (_row_label, _row_key) in enumerate(_cost_rows[:-1]):
+                        _vals = []
+                        for _s_label, _s_data in _scenarios:
+                            if _row_key == "_aging_total":
+                                _v = _s_data.get("aging", {}).get("total", 0)
+                            elif _row_key == "_tax_neg":
+                                _v = abs(_s_data.get("tax", 0))
+                            else:
+                                _v = _s_data.get(_row_key, 0)
+                            _vals.append(max(_v, 0))  # Stackowane słupki — brak ujemnych
+                        _fig_brk.add_trace(go.Bar(
+                            name=_row_label,
+                            x=_brk_scenario_names,
+                            y=_vals,
+                            marker_color=_brk_cat_colors[_ci % len(_brk_cat_colors)],
+                        ))
+
+                    _fig_brk.update_layout(
+                        barmode="stack",
+                        title="Rozbicie kosztów — skąd się bierze miesięczna kwota?",
+                        yaxis_title="zł",
+                        height=350,
+                        margin=dict(t=50, b=30),
+                        legend=dict(orientation="h", yanchor="bottom", y=-0.35),
+                    )
+                    st.plotly_chart(_fig_brk, use_container_width=True)
+
         else:
             # --- Karty samochodowe w budżecie ---
             _n_opts = sum(1 for k in ("ice", "hyb", "bev") if k in results)
@@ -2390,6 +2475,43 @@ def _render_wizard(fuel_data):
                             )
                             st.caption(f"Cena: {results[_key]['price']:,.0f} zł")
                         _col_idx += 1
+
+            # --- Rozbicie kosztów (shopping) ---
+            _shop_scenarios = []
+            for _key, _emoji, _label in [("ice", "🔴", "Spalinowy"), ("hyb", "🟠", "Hybryda"), ("bev", "🟢", "BEV")]:
+                if _key in results:
+                    _shop_scenarios.append((f"{_emoji} {_label}", results[_key]))
+            if _shop_scenarios:
+                with st.expander("📊 Skąd te kwoty? Rozbicie kosztów", expanded=False):
+                    _cost_rows_shop = [
+                        ("Amortyzacja (utrata wartości)", "dep"),
+                        ("Paliwo / prąd", "energy"),
+                        ("Serwis i naprawy", "maint"),
+                        ("Ubezpieczenie (OC+AC)", "ins"),
+                        ("Tarcza podatkowa", "_tax_neg"),
+                        ("RAZEM (TCO netto)", "tco_net"),
+                    ]
+                    _brk_shop = {}
+                    for _s_label, _s_data in _shop_scenarios:
+                        _col_vals = []
+                        for _row_label, _row_key in _cost_rows_shop:
+                            if _row_key == "_tax_neg":
+                                _v = -_s_data.get("tax", 0)
+                            else:
+                                _v = _s_data.get(_row_key, 0)
+                            _col_vals.append(_v)
+                        _brk_shop[_s_label] = _col_vals
+
+                    _df_shop = pd.DataFrame(
+                        _brk_shop,
+                        index=[r[0] for r in _cost_rows_shop],
+                    )
+                    st.dataframe(_df_shop.style.format("{:,.0f} zł"), use_container_width=True)
+                    st.caption(
+                        f"Wartości w zł za cały okres ({period} lat). "
+                        f"Amortyzacja = spadek wartości auta. "
+                        f"TCO netto = suma kosztów − tarcza podatkowa."
+                    )
 
             # --- Sekcja alternatywnego transportu ---
             alt_options = results.get("alt_transport", [])
