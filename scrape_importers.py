@@ -286,11 +286,12 @@ class BrandScraper:
 
 class AutocentrumScraper(BrandScraper):
     """
-    Fallback: scrape autocentrum.pl/cenniki which aggregates all brands.
+    Scraper autocentrum.pl/nowe/ — agregator cenników nowych aut.
 
-    autocentrum.pl ma strukturę:
-    /cenniki/{marka}/ → lista modeli
-    /cenniki/{marka}/{model}/ → wersje z cenami
+    Struktura URL (potwierdzone 03/2026):
+    /nowe/                     → lista marek
+    /nowe/{marka}/             → lista modeli z cenami "od" + spalanie
+    /nowe/{marka}/{model}/     → warianty z cenami (silnik, pakiet, skrzynia)
     """
     brand_name = "autocentrum"
     base_url = "https://www.autocentrum.pl"
@@ -312,7 +313,7 @@ class AutocentrumScraper(BrandScraper):
         self.target_brands = brands  # None = all
 
     def scrape(self) -> list[CarModel]:
-        """Scrape cenniki from autocentrum.pl."""
+        """Scrape cenniki from autocentrum.pl/nowe/."""
         brands_to_scrape = self.target_brands or list(self.BRAND_SLUGS.keys())
 
         for brand in brands_to_scrape:
@@ -329,8 +330,16 @@ class AutocentrumScraper(BrandScraper):
         return self.models
 
     def _scrape_brand(self, brand_display: str, slug: str):
-        """Scrape all models for one brand."""
-        url = f"{self.base_url}/cenniki/{slug}/"
+        """Scrape all models from brand listing page (/nowe/{brand}/).
+
+        HTML structure (03/2026):
+          div.offer-item
+            a.offer-item-info[href] → model page URL
+              h2                    → "Toyota Corolla"
+            div.labels.tags         → "Spalanie od: 5.0 l/100 km"
+            div.price               → "106 900 PLN"
+        """
+        url = f"{self.base_url}/nowe/{slug}/"
         logger.info("Scraping %s: %s", brand_display, url)
 
         try:
@@ -340,262 +349,337 @@ class AutocentrumScraper(BrandScraper):
             return
 
         soup = BeautifulSoup(resp.text, "html.parser")
+        cards = soup.select("div.offer-item")
 
-        # Find model links: usually <a href="/cenniki/toyota/corolla/">
+        if not cards:
+            logger.warning("No offer-item cards found for %s", brand_display)
+            return
+
         model_links = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if f"/cenniki/{slug}/" in href and href.count("/") >= 4:
-                model_name = href.rstrip("/").split("/")[-1]
-                if model_name and model_name != slug:
-                    full_url = self.base_url + href if href.startswith("/") else href
-                    model_links.append((model_name, full_url))
+        for card in cards:
+            # Extract model name from h2
+            h2 = card.select_one("a.offer-item-info h2")
+            if not h2:
+                h2 = card.select_one("h2")
+            if not h2:
+                continue
+            model_full_name = h2.get_text(strip=True)  # "Toyota Corolla"
 
-        # Deduplicate
-        seen = set()
-        unique_links = []
-        for name, link in model_links:
-            if name not in seen:
-                seen.add(name)
-                unique_links.append((name, link))
+            # Extract model page URL
+            link_el = card.select_one("a.offer-item-info")
+            if not link_el:
+                link_el = card.select_one("a[href*='/nowe/']")
+            if not link_el:
+                continue
+            href = link_el.get("href", "")
 
-        for model_slug, model_url in unique_links[:15]:  # max 15 models per brand
+            # Extract "from" price
+            price_el = card.select_one("div.price")
+            price_text = price_el.get_text(strip=True) if price_el else ""
+            price = self._parse_price(price_text)
+
+            # Extract fuel consumption from labels
+            fuel_consumption = None
+            labels = card.select(".labels div, .labels.tags div")
+            for label in labels:
+                label_text = label.get_text(strip=True)
+                if "spalanie" in label_text.lower():
+                    fuel_consumption = self._parse_consumption(label_text)
+                    break
+
+            model_links.append({
+                "full_name": model_full_name,
+                "href": href,
+                "price": price,
+                "consumption": fuel_consumption,
+            })
+
+        logger.info("Found %d models for %s on brand page", len(model_links), brand_display)
+
+        # For each model, scrape the detail page for variants
+        for info in model_links[:20]:
+            model_url = info["href"]
+            if model_url.startswith("/"):
+                model_url = self.base_url + model_url
+
+            # Extract model name: strip brand prefix ("Toyota Corolla" → "Corolla")
+            model_name = info["full_name"]
+            if model_name.lower().startswith(brand_display.lower()):
+                model_name = model_name[len(brand_display):].strip()
+            if not model_name:
+                model_name = info["full_name"]
+
             try:
-                self._scrape_model(brand_display, model_slug, model_url)
+                self._scrape_model(brand_display, model_name, model_url,
+                                   fallback_price=info["price"],
+                                   fallback_consumption=info["consumption"])
             except Exception as e:
-                logger.warning("Błąd modelu %s %s: %s", brand_display, model_slug, e)
+                logger.warning("Błąd modelu %s %s: %s", brand_display, model_name, e)
 
-    def _scrape_model(self, brand: str, model_slug: str, url: str):
-        """Scrape variants for one model from autocentrum."""
+    def _scrape_model(self, brand: str, model_name: str, url: str,
+                      fallback_price: int | None = None,
+                      fallback_consumption: float | None = None):
+        """Scrape variants from model page (/nowe/{brand}/{model}/).
+
+        HTML structure:
+          a.configuration-row
+            div[0]      → body type: "Hatchback"
+            div[1]      → engine: "1.5 Hybrid Dynamic Force 116 KM"
+            div[2]      → package (span[1]): "Active"
+            div[3]      → transmission (span[1]): "manualna, 6-biegowa"
+            div[4]      → drive (span[1]): "na przednią oś"
+            div.price   → "84 900 PLN"
+
+        Engine type from URL href: silnik-benzynowy / silnik-hybrydowy / silnik-elektryczny
+        """
         try:
             resp = self._get(url)
         except Exception:
+            # Use fallback data from brand page if detail page fails
+            if fallback_price:
+                car = CarModel(
+                    brand=brand, model=model_name, variant="base",
+                    price_pln=fallback_price, engine_type="ICE",
+                    fuel_city_l=fallback_consumption or 0,
+                    segment=classify_segment(model_name),
+                    url=url, scraped_at=datetime.now().isoformat(),
+                )
+                self.models.append(car)
             return
 
         soup = BeautifulSoup(resp.text, "html.parser")
-        model_display = model_slug.replace("-", " ").title()
+        rows = soup.select("a.configuration-row")
 
-        # Look for price tables or price entries
-        # Autocentrum typically shows: Wersja | Silnik | Cena od
-        rows = soup.select("table tr, .version-row, [class*='price']")
+        if not rows:
+            logger.debug("No configuration-row found for %s %s, using fallback", brand, model_name)
+            if fallback_price:
+                car = CarModel(
+                    brand=brand, model=model_name, variant="base",
+                    price_pln=fallback_price, engine_type="ICE",
+                    fuel_city_l=fallback_consumption or 0,
+                    segment=classify_segment(model_name),
+                    url=url, scraped_at=datetime.now().isoformat(),
+                )
+                self.models.append(car)
+            return
 
-        found_any = False
+        seen_variants = set()
         for row in rows:
-            cells = row.find_all(["td", "th", "span", "div"])
+            cells = row.select("div")
             if len(cells) < 2:
                 continue
 
-            text_parts = [c.get_text(strip=True) for c in cells]
-            full_text = " ".join(text_parts)
-
-            # Try to extract price
-            price = None
-            for part in text_parts:
-                price = self._parse_price(part)
-                if price:
-                    break
-
+            # Price (last cell with class 'price')
+            price_el = row.select_one("div.price")
+            price = self._parse_price(price_el.get_text(strip=True)) if price_el else None
             if not price:
                 continue
 
-            # Determine engine type
+            # Engine info (cell 1)
+            engine_text = cells[1].get_text(strip=True) if len(cells) > 1 else ""
+
+            # Package name (cell 2, second span)
+            package = ""
+            if len(cells) > 2:
+                spans = cells[2].select("span")
+                package = spans[1].get_text(strip=True) if len(spans) > 1 else cells[2].get_text(strip=True)
+
+            # Determine engine type from href or engine text
+            href = row.get("href", "")
             engine_type = "ICE"
-            lower_text = full_text.lower()
-            if "electric" in lower_text or "bev" in lower_text or "ev" in lower_text:
+            fuel_type = 0  # benzyna
+            lower_engine = engine_text.lower()
+            lower_href = href.lower()
+
+            if "silnik-elektryczny" in lower_href or "electric" in lower_engine:
                 engine_type = "BEV"
-            elif "phev" in lower_text or "plug-in" in lower_text:
+            elif "plug-in" in lower_engine or "phev" in lower_engine:
                 engine_type = "PHEV"
-            elif "hybrid" in lower_text or "hev" in lower_text:
+            elif "silnik-hybrydowy" in lower_href or "hybrid" in lower_engine:
                 engine_type = "HEV"
 
-            fuel_type = 0  # benzyna
-            if "diesel" in lower_text or "tdi" in lower_text or "bluehdi" in lower_text:
+            if "diesel" in lower_engine or "tdi" in lower_engine or "bluehdi" in lower_engine or "silnik-diesla" in lower_href:
                 fuel_type = 1
-            elif "lpg" in lower_text:
-                fuel_type = 2
 
-            # Variant name: first cell usually
-            variant = text_parts[0] if text_parts else model_display
+            # Build variant name: "1.5 Hybrid 116 KM Active"
+            variant = engine_text
+            if package and package.lower() not in engine_text.lower():
+                variant = f"{engine_text} {package}"
+
+            # Deduplicate: only cheapest per engine+package combo
+            dedup_key = (engine_text, package)
+            if dedup_key in seen_variants:
+                continue
+            seen_variants.add(dedup_key)
 
             car = CarModel(
                 brand=brand,
-                model=model_display,
+                model=model_name,
                 variant=variant,
                 price_pln=price,
                 engine_type=engine_type,
                 fuel_type=fuel_type,
-                segment=classify_segment(model_display),
+                fuel_city_l=fallback_consumption or 0,
+                segment=classify_segment(model_name),
                 url=url,
                 scraped_at=datetime.now().isoformat(),
             )
             self.models.append(car)
-            found_any = True
 
-        if not found_any:
-            # Fallback: scan full page text for price patterns
-            text = soup.get_text()
-            price_matches = re.findall(r'od\s+([\d\s\.]+)\s*(?:zł|PLN)', text, re.IGNORECASE)
-            for pm in price_matches[:1]:  # just first price
-                price = self._parse_price(pm)
-                if price:
-                    car = CarModel(
-                        brand=brand,
-                        model=model_display,
-                        variant="base",
-                        price_pln=price,
-                        engine_type="ICE",
-                        segment=classify_segment(model_display),
-                        url=url,
-                        scraped_at=datetime.now().isoformat(),
-                    )
-                    self.models.append(car)
+        logger.info("Scraped %d variants for %s %s", len(seen_variants), brand, model_name)
+
+
+class ToyotaAPIScraper(BrandScraper):
+    """
+    Scraper Toyota via cocadap.toyota-europe.com API.
+
+    Publiczne JSON API — nie wymaga auth. Zwraca pełne cenniki
+    z podziałem na grade → bodyType → engine → transmission → cena.
+    Nie zawiera danych o spalaniu (trzeba brać z autocentrum.pl).
+    """
+    brand_name = "Toyota"
+    API_BASE = "https://cocadap.toyota-europe.com/toyota/pl/pl/comparegradespecsv2"
+
+    MODELS = {
+        "Aygo X": "37d0214b-a347-4e4c-864f-d14df8086d90",
+        "Yaris": "09a6531a-c3f1-4d2d-b4d3-eb45cbb35478",
+        "Yaris Cross": "5c933238-df10-41c5-b921-a2e4d25ef931",
+        "Corolla Sedan": "65bfd91d-f2a8-4cbb-bdbc-3834b400492a",
+        "Corolla HB": "881ef498-b467-4895-8074-cbc4340ccc81",
+        "Corolla TS": "3c8992f3-e4f9-4ae1-bb67-305780342518",
+        "Corolla Cross": "aed6cffc-96a7-4068-806e-be22ce401878",
+        "C-HR": "6c193d6b-514c-436f-ab43-654d97e601d8",
+        "Camry": "b6866060-c84a-4a43-b968-25947907b9cc",
+        "RAV4": "a68a58fb-a10e-41ae-9459-3a7c4060500f",
+        "bZ4X": "7fb7f6d1-dbbc-4886-98ea-d1856e3815db",
+        "Highlander": "44938d8c-6050-4bff-9173-500d1b9d76a1",
+        "Land Cruiser": "60ae2897-f9e1-4ff6-bc61-974d2d0edb5f",
+        "Prius Plug-in": "d27a100c-76fc-4d03-8ed4-ab4a152b09da",
+        "GR86": "46bb482c-7143-42ef-ace3-90b8b6a67953",
+        "Hilux": "e1610f96-e7f9-4cb1-8d64-a659fee2b768",
+    }
+
+    def __init__(self, session, models: list[str] | None = None):
+        super().__init__(session)
+        self.target_models = models  # None = all
+
+    def scrape(self) -> list[CarModel]:
+        """Scrape all Toyota models via cocadap API."""
+        targets = self.target_models or list(self.MODELS.keys())
+
+        for model_name in targets:
+            uuid = self.MODELS.get(model_name)
+            if not uuid:
+                continue
+            try:
+                self._scrape_model(model_name, uuid)
+            except Exception as e:
+                logger.error("Toyota API error for %s: %s", model_name, e)
+
+        logger.info("Toyota API: %d models scraped", len(self.models))
+        return self.models
+
+    def _scrape_model(self, model_name: str, uuid: str):
+        """Fetch one model from API and extract variants."""
+        url = f"{self.API_BASE}/{uuid}"
+        resp = self._get(url, headers={"Accept": "application/json"})
+        if not resp.headers.get("content-type", "").startswith("application/json"):
+            logger.warning("Toyota API non-JSON response for %s", model_name)
+            return
+
+        data = resp.json()
+
+        # Build engine lookup: id → {name, category_code, fuel_id}
+        engine_map = {}
+        for eng in data.get("engines", []):
+            cat = eng.get("category", {})
+            engine_map[eng["id"]] = {
+                "name": eng.get("name", ""),
+                "type": cat.get("code", "ICE"),  # HEV, BEV, PHEV, ICE
+                "fuel": eng.get("fuel", ""),
+            }
+
+        # Build fuel lookup: id → name
+        fuel_map = {}
+        for f in data.get("fuels", []):
+            fuel_map[f["id"]] = f.get("name", "")
+
+        # Navigate submodels → grades → bodyTypes → engines → transmissions → wheeldrives
+        for submodel in data.get("submodels", []):
+            for grade in submodel.get("grades", []):
+                grade_name = grade.get("name", "")
+                for bt in grade.get("bodyTypes", []):
+                    for eng_entry in bt.get("engines", []):
+                        eng_id = eng_entry.get("id", "")
+                        eng_info = engine_map.get(eng_id, {})
+                        eng_name = eng_info.get("name", "")
+                        eng_type = eng_info.get("type", "ICE")
+
+                        fuel_name = fuel_map.get(eng_info.get("fuel", ""), "")
+                        fuel_type = 0  # benzyna
+                        if "diesel" in fuel_name.lower():
+                            fuel_type = 1
+
+                        for trans in eng_entry.get("transmissions", []):
+                            for wd in trans.get("wheeldrives", []):
+                                price_obj = wd.get("from") or wd.get("default")
+                                if not price_obj:
+                                    continue
+                                price = int(price_obj.get("list", 0))
+                                if price < 20_000 or price > 3_000_000:
+                                    continue
+
+                                # Deduplicate: keep cheapest per grade+engine combo
+                                variant = f"{eng_name} {grade_name}".strip()
+
+                                car = CarModel(
+                                    brand="Toyota",
+                                    model=model_name,
+                                    variant=variant,
+                                    price_pln=price,
+                                    engine_type=eng_type,
+                                    fuel_type=fuel_type,
+                                    segment=classify_segment(model_name),
+                                    url=url,
+                                    scraped_at=datetime.now().isoformat(),
+                                )
+                                self.models.append(car)
+
+    def _deduplicate(self):
+        """Keep only cheapest variant per model+engine_type combo."""
+        best = {}
+        for m in self.models:
+            key = (m.model, m.engine_type, m.variant)
+            if key not in best or m.price_pln < best[key].price_pln:
+                best[key] = m
+        self.models = list(best.values())
 
 
 class DirectImporterScraper(BrandScraper):
     """
     Scraper bezpośrednich stron importerów.
-    Każda marka ma inną strukturę → osobne metody.
+    Większość stron jest JS-rendered → fallback do autocentrum.pl.
+    Toyota ma dedykowane API (ToyotaAPIScraper).
     """
     brand_name = "direct"
-
-    # Znane struktury API / cenników
-    BRAND_CONFIGS = {
-        "toyota": {
-            "cennik_url": "https://www.toyota.pl/new-cars",
-            "api_url": "https://www.toyota.pl/api/v2/vehicles",
-        },
-        "volkswagen": {
-            "cennik_url": "https://www.volkswagen.pl/pl/modele.html",
-        },
-        "hyundai": {
-            "cennik_url": "https://www.hyundai.com/pl/modele.html",
-        },
-        "kia": {
-            "cennik_url": "https://www.kia.com/pl/modele/",
-        },
-        "skoda": {
-            "cennik_url": "https://www.skoda-auto.pl/modele",
-        },
-        "ford": {
-            "cennik_url": "https://www.ford.pl/samochody",
-        },
-        "bmw": {
-            "cennik_url": "https://www.bmw.pl/pl/all-models.html",
-        },
-        "tesla": {
-            "api_url": "https://www.tesla.com/pl_pl/model3",
-        },
-        "mg": {
-            "cennik_url": "https://www.mgmotor.pl/modele",
-        },
-        "dacia": {
-            "cennik_url": "https://www.dacia.pl/gama.html",
-        },
-        "renault": {
-            "cennik_url": "https://www.renault.pl/samochody-osobowe.html",
-        },
-        "peugeot": {
-            "cennik_url": "https://www.peugeot.pl/modele/samochody-osobowe.html",
-        },
-        "citroen": {
-            "cennik_url": "https://www.citroen.pl/modele.html",
-        },
-        "fiat": {
-            "cennik_url": "https://www.fiat.pl/modele",
-        },
-        "opel": {
-            "cennik_url": "https://www.opel.pl/modele.html",
-        },
-        "mazda": {
-            "cennik_url": "https://www.mazda.pl/modele/",
-        },
-        "nissan": {
-            "cennik_url": "https://www.nissan.pl/pojazdy/nowe-samochody.html",
-        },
-        "honda": {
-            "cennik_url": "https://www.honda.pl/cars.html",
-        },
-        "volvo": {
-            "cennik_url": "https://www.volvocars.com/pl/modele/",
-        },
-        "suzuki": {
-            "cennik_url": "https://www.suzuki.pl/samochody",
-        },
-        "byd": {
-            "cennik_url": "https://www.byd.com/pl/car.html",
-        },
-        "cupra": {
-            "cennik_url": "https://www.cupraofficial.pl/modele.html",
-        },
-    }
 
     def __init__(self, session, brands: list[str] | None = None):
         super().__init__(session)
         self.target_brands = brands
 
     def scrape(self) -> list[CarModel]:
-        """Try to scrape direct importer sites."""
-        brands = self.target_brands or list(self.BRAND_CONFIGS.keys())
+        """Try Toyota API, skip other brands (JS-rendered, unreliable)."""
+        brands = self.target_brands or ["toyota"]
 
-        for brand in brands:
-            config = self.BRAND_CONFIGS.get(brand.lower())
-            if not config:
-                continue
-
-            logger.info("Próba bezpośredniego scrapowania: %s", brand)
-
-            # Try API first
-            if "api_url" in config:
-                try:
-                    self._try_api(brand, config["api_url"])
-                    continue
-                except Exception as e:
-                    logger.debug("API %s failed: %s", brand, e)
-
-            # Try HTML cennik
-            if "cennik_url" in config:
-                try:
-                    self._try_html(brand, config["cennik_url"])
-                except Exception as e:
-                    logger.debug("HTML %s failed: %s", brand, e)
+        if "toyota" in [b.lower() for b in brands]:
+            logger.info("=== Toyota API scraping ===")
+            toyota = ToyotaAPIScraper(self.session)
+            toyota_models = toyota.scrape()
+            toyota._deduplicate()
+            self.models.extend(toyota.models)
+            logger.info("Toyota API: %d unique variants", len(toyota.models))
 
         return self.models
-
-    def _try_api(self, brand: str, api_url: str):
-        """Try JSON API endpoint."""
-        resp = self._get(api_url, headers={"Accept": "application/json"})
-        if resp.headers.get("content-type", "").startswith("application/json"):
-            data = resp.json()
-            logger.info("API %s returned JSON (%d bytes)", brand, len(resp.text))
-            # Parsowanie zależy od struktury API danej marki
-            # Na razie logujemy sukces — struktura wymaga dopasowania per-brand
-
-    def _try_html(self, brand: str, url: str):
-        """Try HTML scraping of price list page."""
-        resp = self._get(url)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        text = soup.get_text()
-
-        # Szukaj wzorców cenowych
-        price_patterns = [
-            r'od\s+([\d\s\.]+)\s*(?:zł|PLN)',
-            r'cena\s+(?:od\s+)?([\d\s\.]+)\s*(?:zł|PLN)',
-            r'([\d]{2,3}\s?\d{3})\s*(?:zł|PLN)',
-        ]
-
-        prices_found = []
-        for pattern in price_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            for m in matches:
-                price = self._parse_price(m)
-                if price:
-                    prices_found.append(price)
-
-        if prices_found:
-            logger.info("HTML %s: found %d prices (range %d–%d PLN)",
-                        brand, len(prices_found), min(prices_found), max(prices_found))
-        else:
-            logger.info("HTML %s: no prices found (likely JS-rendered)", brand)
 
 
 # ============================================================================

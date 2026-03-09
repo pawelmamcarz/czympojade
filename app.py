@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "23.3"
+APP_VERSION = "23.4"
 
 import math
 import re
@@ -286,6 +286,57 @@ WIZARD_FUEL_MAP = {
     "Hybryda": (0, "HEV"),
     "Elektryczny": (0, "BEV"),
 }
+
+# ---------------------------------------------------------------------------
+# Alternatywny transport — koszty referencyjne (Warszawa/duże miasta 2025/2026)
+# Źródła: ZTM Warszawa, Bolt/Uber cenniki, PKP Intercity, rowery miejskie
+# ---------------------------------------------------------------------------
+ALT_TRANSPORT = {
+    "🚌 Komunikacja miejska": {
+        "monthly_pass": 110,  # ZTM Warszawa bilet miesięczny (strefa 1+2)
+        "per_km": 0,          # wliczone w bilet
+        "fixed_monthly": 110,
+        "max_km_month": 1500, # sensowny limit — powyżej auto może być lepsze
+        "emoji": "🚌",
+        "desc": "Bilet miesięczny ZTM/MPK + okazjonalnie pieszo",
+    },
+    "🚗 Uber / Bolt": {
+        "monthly_pass": 0,
+        "per_km": 2.50,       # średnia cena za km (Bolt/Uber Warszawa 2025)
+        "fixed_monthly": 0,
+        "min_per_ride": 12,   # minimalna opłata za kurs
+        "avg_ride_km": 8,     # średni kurs w mieście
+        "emoji": "🚗",
+        "desc": "Przejazdy na żądanie (Uber, Bolt, FreeNow)",
+    },
+    "🚌+🚗 Komunikacja + taxi okazjonalnie": {
+        "monthly_pass": 110,  # bilet ZTM
+        "taxi_rides_month": 8,  # 2x/tydzień taxi
+        "avg_taxi_cost": 25,    # średni koszt kursu
+        "fixed_monthly": 110 + 8 * 25,  # 310 zł
+        "emoji": "🚌🚗",
+        "desc": "Bilet miesięczny + taxi 2×/tydz. na zakupy/spotkania",
+    },
+    "🚲 Rower / hulajnoga": {
+        "monthly_pass": 0,
+        "per_km": 0.10,       # amortyzacja + serwis roweru
+        "fixed_monthly": 40,  # Veturilo/Nextbike abo lub serwis własnego
+        "max_km_month": 800,  # realistyczny limit rowerowy
+        "emoji": "🚲",
+        "desc": "Własny rower lub abonament miejski (do ~10 km/dzień)",
+    },
+    "🚆 Pociąg / kolej": {
+        "monthly_pass": 280,  # PKP Intercity bilet miesięczny lub KM abo
+        "per_km": 0,
+        "fixed_monthly": 280,
+        "max_km_month": 2500, # dojazd podmiejski
+        "emoji": "🚆",
+        "desc": "Kolei aglomeracyjna / podmiejska (do 50 km w jedną stronę)",
+    },
+}
+
+# Próg budżetowy — poniżej tego wizard sugeruje alt transport
+ALT_TRANSPORT_BUDGET_THRESHOLD = 1000  # zł/mies.
 
 # ---------------------------------------------------------------------------
 # Koszty starzenia: nieplanowane naprawy + korozja (zł/rok) wg segmentu
@@ -1102,6 +1153,66 @@ def calculate_aging_cost(segment_key, car_start_age, start_mileage, annual_km,
     }
 
 
+def calculate_alt_transport(monthly_km, period_years, driving_style="Po mieście"):
+    """Kalkuluj koszt alternatywnego transportu (bez samochodu).
+
+    Dla każdej opcji z ALT_TRANSPORT oblicza koszt miesięczny i TCO za period.
+    Uwzględnia styl jazdy (po mieście = więcej opcji, długie trasy = mniej).
+
+    Returns list of dicts sorted by monthly cost:
+        [{"name": str, "monthly": float, "tco_total": float, "desc": str, "emoji": str, "viable": bool}]
+    """
+    yearly_km = monthly_km * 12
+    results = []
+
+    for name, cfg in ALT_TRANSPORT.items():
+        emoji = cfg.get("emoji", "")
+        desc = cfg.get("desc", "")
+
+        # Sprawdź czy opcja jest realistyczna dla tego przebiegu
+        max_km = cfg.get("max_km_month", 99999)
+        viable = monthly_km <= max_km
+
+        # Oblicz koszt miesięczny
+        fixed = cfg.get("fixed_monthly", 0)
+
+        if "taxi_rides_month" in cfg:
+            # Komunikacja + taxi combo
+            monthly_cost = cfg.get("monthly_pass", 0) + cfg["taxi_rides_month"] * cfg["avg_taxi_cost"]
+        elif cfg.get("per_km", 0) > 0 and "min_per_ride" in cfg:
+            # Uber/Bolt — koszt per km z minimum per kurs
+            avg_ride_km = cfg.get("avg_ride_km", 8)
+            rides_per_month = max(1, monthly_km / avg_ride_km)
+            cost_per_ride = max(cfg["min_per_ride"], avg_ride_km * cfg["per_km"])
+            monthly_cost = rides_per_month * cost_per_ride
+        elif cfg.get("per_km", 0) > 0:
+            # Rower — stałe + per km
+            monthly_cost = fixed + monthly_km * cfg["per_km"]
+        else:
+            # Bilet / pociąg — stały koszt
+            monthly_cost = fixed
+
+        tco_total = monthly_cost * 12 * period_years
+
+        # Filtruj opcje nieodpowiednie dla stylu jazdy
+        if driving_style == "Długie trasy":
+            if name in ("🚲 Rower / hulajnoga",):
+                viable = False
+
+        results.append({
+            "name": name,
+            "monthly": monthly_cost,
+            "tco_total": tco_total,
+            "desc": desc,
+            "emoji": emoji,
+            "viable": viable,
+        })
+
+    # Sortuj po koszcie miesięcznym
+    results.sort(key=lambda x: x["monthly"])
+    return results
+
+
 # ---------------------------------------------------------------------------
 # LEASING / FINANSOWANIE
 # ---------------------------------------------------------------------------
@@ -1539,7 +1650,7 @@ def run_wizard_analysis(wizard_data, fuel_data):
             results["hyb"] = {"name": hyb_name, "price": hyb_p["price"], **r_hyb_adj}
 
     else:
-        # --- Szukam auta: porównanie ICE vs HYB vs BEV ---
+        # --- Szukam auta: porównanie ICE vs HYB vs BEV + alternatywny transport ---
         budget = wizard_data.get("budget_monthly", 2000) * 36  # 3 lata rat → budżet
         prefer_new = wizard_data.get("prefer_new", "Nie wiem")
 
@@ -1613,6 +1724,47 @@ def run_wizard_analysis(wizard_data, fuel_data):
             )
             results["hyb"] = {"name": hyb_name, "price": hyb_p["price"], **r_hyb}
 
+        # --- Budżet jako HARD CONSTRAINT ---
+        budget_monthly = wizard_data.get("budget_monthly", 2000)
+
+        # Odfiltruj auta powyżej budżetu
+        car_keys_over_budget = []
+        for _ck in ("ice", "bev", "hyb"):
+            if _ck in results and results[_ck]["monthly"] > budget_monthly:
+                car_keys_over_budget.append(_ck)
+
+        # Przenieś auta powyżej budżetu do osobnej sekcji
+        results["over_budget"] = {}
+        for _ck in car_keys_over_budget:
+            results["over_budget"][_ck] = results.pop(_ck)
+
+        # --- Alternatywny transport (zawsze obliczaj) ---
+        alt_options = calculate_alt_transport(monthly_km, period, road_key)
+        results["alt_transport"] = alt_options
+
+        # Najtańsza opcja samochodowa (monthly) — tylko te w budżecie
+        car_opts_monthly = {k: results[k]["monthly"] for k in ("ice", "bev", "hyb") if k in results}
+        cheapest_car_monthly = min(car_opts_monthly.values()) if car_opts_monthly else 99999
+
+        # Najtańsza opcja alt transportu (viable)
+        viable_alts = [a for a in alt_options if a["viable"]]
+        cheapest_alt_monthly = viable_alts[0]["monthly"] if viable_alts else 99999
+
+        # Flaga: sugeruj "nie potrzebujesz auta" jeśli:
+        # 1. Żadne auto nie mieści się w budżecie
+        # 2. Alt transport ≥50% tańszy niż najtańsze auto w budżecie
+        # 3. Alt transport ≥30% tańszy + głównie po mieście
+        suggest_no_car = False
+        if not car_opts_monthly:
+            # Żadne auto w budżecie!
+            suggest_no_car = True
+        elif viable_alts and cheapest_alt_monthly < cheapest_car_monthly * 0.50:
+            suggest_no_car = True
+        elif viable_alts and cheapest_alt_monthly < cheapest_car_monthly * 0.70 and road_key == "Po mieście":
+            suggest_no_car = True
+
+        results["suggest_no_car"] = suggest_no_car
+
     # --- Werdykt ---
     has_car = wizard_data.get("has_car", False)
     if has_car and "keep" in results:
@@ -1640,9 +1792,31 @@ def run_wizard_analysis(wizard_data, fuel_data):
             savings_total = 0
             savings_monthly = 0
     else:
-        # Szukam auta — znajdź najtańszy
+        # Szukam auta — znajdź najtańszy (auto vs alt transport)
         opts = {k: results[k]["tco_net"] for k in ("ice", "bev", "hyb") if k in results}
-        if opts:
+
+        # Jeśli sugerujemy "bez auta" — verdict = "no_car"
+        if results.get("suggest_no_car") and results.get("alt_transport"):
+            viable_alts = [a for a in results["alt_transport"] if a["viable"]]
+            if viable_alts:
+                best_alt = viable_alts[0]  # najtańsza viable opcja
+                cheapest_car_tco = min(opts.values()) if opts else 99999999
+                savings_total = cheapest_car_tco - best_alt["tco_total"]
+                savings_monthly = savings_total / (period * 12)
+                verdict = "no_car"
+            else:
+                # Fallback do normalnego porównania
+                if opts:
+                    verdict = min(opts, key=opts.get)
+                    best_tco = opts[verdict]
+                    worst_tco = max(opts.values())
+                    savings_total = worst_tco - best_tco
+                    savings_monthly = savings_total / (period * 12)
+                else:
+                    verdict = "ice"
+                    savings_total = 0
+                    savings_monthly = 0
+        elif opts:
             verdict = min(opts, key=opts.get)
             best_tco = opts[verdict]
             worst_tco = max(opts.values())
@@ -1878,8 +2052,8 @@ def _render_wizard(fuel_data):
             col_a, col_b = st.columns(2)
             with col_a:
                 budget_monthly = st.slider(
-                    "Budżet miesięczny na auto (zł/mies.)",
-                    500, 8_000,
+                    "Budżet miesięczny na transport (zł/mies.)",
+                    200, 8_000,
                     value=wdata.get("budget_monthly", 2000),
                     step=250,
                     key="wiz_budget",
@@ -1891,13 +2065,35 @@ def _render_wizard(fuel_data):
                     key="wiz_prefer_new",
                 )
             with col_b:
-                monthly_km = st.number_input(
-                    "Ile km miesięcznie?",
-                    min_value=100, max_value=10_000,
-                    value=wdata.get("monthly_km", 1500),
-                    step=100,
-                    key="wiz_km_b",
+                st.markdown("**Oszacuj swoje potrzeby transportowe:**")
+                _km_work = st.number_input(
+                    "Km do pracy / szkoły (w jedną stronę)",
+                    min_value=0, max_value=100,
+                    value=wdata.get("_km_work", 10),
+                    step=1,
+                    key="wiz_km_work",
+                    help="Odległość w jedną stronę. Jeśli pracujesz zdalnie, wpisz 0.",
                 )
+                _work_days = st.number_input(
+                    "Dni dojazdu w tygodniu",
+                    min_value=0, max_value=7,
+                    value=wdata.get("_work_days", 5),
+                    step=1,
+                    key="wiz_work_days",
+                )
+                _km_other = st.number_input(
+                    "Inne tygodniowe km (zakupy, hobby, dzieci…)",
+                    min_value=0, max_value=500,
+                    value=wdata.get("_km_other", 30),
+                    step=10,
+                    key="wiz_km_other",
+                    help="Zakupy, wizyty, aktywności — szacunkowo za cały tydzień.",
+                )
+                _weekly_km = _km_work * 2 * _work_days + _km_other
+                monthly_km = int(_weekly_km * 4.33)  # 4.33 tygodnie/mies.
+                monthly_km = max(monthly_km, 50)  # minimum
+                st.metric("Szacowany przebieg", f"{monthly_km} km/mies.",
+                          help="Obliczony na podstawie Twoich odpowiedzi powyżej.")
 
         nav_c1, nav_c2 = st.columns(2)
         with nav_c1:
@@ -1917,6 +2113,9 @@ def _render_wizard(fuel_data):
                 else:
                     wdata["budget_monthly"] = budget_monthly
                     wdata["prefer_new"] = prefer_new
+                    wdata["_km_work"] = _km_work
+                    wdata["_work_days"] = _work_days
+                    wdata["_km_other"] = _km_other
                 st.session_state["wizard_data"] = wdata
                 st.session_state["wizard_step"] = 2
                 st.rerun()
@@ -1925,14 +2124,27 @@ def _render_wizard(fuel_data):
     elif step == 2:
         st.header("Czego potrzebujesz?")
 
+        _has_car_now = wdata.get("has_car", True)
+
         col_a, col_b = st.columns(2)
         with col_a:
-            parking = st.radio(
-                "Gdzie parkujesz?",
-                ["Garaż / dom z prądem", "Parking osiedlowy / ulica"],
-                index=0 if wdata.get("has_garage", True) else 1,
-                key="wiz_parking",
-            )
+            if _has_car_now:
+                parking = st.radio(
+                    "Gdzie parkujesz?",
+                    ["Garaż / dom z prądem", "Parking osiedlowy / ulica"],
+                    index=0 if wdata.get("has_garage", True) else 1,
+                    key="wiz_parking",
+                )
+            else:
+                _park_opts = ["Nie mam auta — nie dotyczy", "Garaż / dom z prądem", "Parking osiedlowy / ulica"]
+                _park_default = wdata.get("_park_no_car", _park_opts[0])
+                parking = st.radio(
+                    "Gdzie będziesz parkować?",
+                    _park_opts,
+                    index=_park_opts.index(_park_default) if _park_default in _park_opts else 0,
+                    key="wiz_parking_no_car",
+                    help="Jeśli nie planujesz kupować auta, wybierz pierwszą opcję.",
+                )
             pv_choice = st.radio(
                 "Masz panele PV (fotowoltaikę)?",
                 ["Tak", "Nie", "Planuję"],
@@ -1940,12 +2152,14 @@ def _render_wizard(fuel_data):
                 key="wiz_pv",
             )
         with col_b:
+            _road_keys = list(WIZARD_ROAD_SPLITS.keys())
+            # Dla osób bez auta domyślnie "Po mieście"
+            _style_default = wdata.get("driving_style",
+                                       "Po mieście" if not _has_car_now else "Mieszanka miasto + trasa")
             driving_style = st.radio(
-                "Głównie jeździsz:",
-                list(WIZARD_ROAD_SPLITS.keys()),
-                index=list(WIZARD_ROAD_SPLITS.keys()).index(
-                    wdata.get("driving_style", "Mieszanka miasto + trasa")
-                ),
+                "Głównie jeździsz / będziesz jeździć:",
+                _road_keys,
+                index=_road_keys.index(_style_default) if _style_default in _road_keys else 0,
                 key="wiz_style",
             )
 
@@ -1960,6 +2174,8 @@ def _render_wizard(fuel_data):
                 wdata["has_pv"] = pv_choice == "Tak"
                 wdata["pv_choice"] = pv_choice
                 wdata["driving_style"] = driving_style
+                if not _has_car_now:
+                    wdata["_park_no_car"] = parking
                 st.session_state["wizard_data"] = wdata
                 # Uruchom analizę
                 with st.spinner("Analizuję Twoją sytuację..."):
@@ -2012,7 +2228,29 @@ def _render_wizard(fuel_data):
                     f"w **{period} lat**. Sprawdź szczegóły poniżej."
                 )
         else:
-            if verdict == "bev" and "bev" in results:
+            _over_budget = results.get("over_budget", {})
+            _n_over = len(_over_budget)
+            if verdict == "no_car":
+                # --- FORK: Nie potrzebujesz auta ---
+                _budget_m = wdata.get('budget_monthly', 0)
+                _km_m = wdata.get('monthly_km', 0)
+                if _n_over > 0:
+                    _cheapest_over = min(_over_budget.values(), key=lambda x: x["monthly"])
+                    st.warning(
+                        f"### 🚶 Żadne auto nie mieści się w budżecie {_budget_m:,} zł/mies.\n\n"
+                        f"Najtańszy samochód to **{_cheapest_over['name']}** "
+                        f"za **{_cheapest_over['monthly']:,.0f} zł/mies.** — "
+                        f"to **{_cheapest_over['monthly'] / max(_budget_m, 1):.1f}×** Twojego budżetu.\n\n"
+                        f"Przy **{_km_m} km/mies.** rozważ alternatywny transport 👇"
+                    )
+                else:
+                    st.success(
+                        f"### 🚌 Nie potrzebujesz samochodu!\n\n"
+                        f"Przy budżecie **{_budget_m:,} zł/mies.** "
+                        f"i **{_km_m} km/mies.** — "
+                        f"alternatywny transport jest **znacznie tańszy** niż posiadanie auta."
+                    )
+            elif verdict == "bev" and "bev" in results:
                 st.success(
                     f"### ⚡ Rekomendacja: {results['bev']['name']}\n\n"
                     f"Najtańsza opcja — oszczędzasz **{abs(savings):,.0f} zł** "
@@ -2066,19 +2304,51 @@ def _render_wizard(fuel_data):
                     )
                     st.caption(f"Cena: {results['hyb']['price']:,.0f} zł")
         else:
+            # --- Karty samochodowe w budżecie ---
             _n_opts = sum(1 for k in ("ice", "hyb", "bev") if k in results)
-            cols = st.columns(max(_n_opts, 1))
-            _col_idx = 0
-            for _key, _emoji, _label in [("ice", "🔴", "Spalinowy"), ("hyb", "🟠", "Hybryda"), ("bev", "🟢", "Elektryczny")]:
-                if _key in results:
-                    with cols[_col_idx]:
-                        st.markdown(f"**{_emoji} {_label}**")
+            if _n_opts > 0:
+                st.markdown(f"**Opcje w budżecie ≤ {wdata.get('budget_monthly', 0):,} zł/mies.**")
+                cols = st.columns(max(_n_opts, 1))
+                _col_idx = 0
+                for _key, _emoji, _label in [("ice", "🔴", "Spalinowy"), ("hyb", "🟠", "Hybryda"), ("bev", "🟢", "Elektryczny")]:
+                    if _key in results:
+                        with cols[_col_idx]:
+                            st.markdown(f"**{_emoji} {_label}**")
+                            st.metric(
+                                results[_key]["name"][:30],
+                                f'{results[_key]["monthly"]:,.0f} zł/mies.',
+                            )
+                            st.caption(f"Cena: {results[_key]['price']:,.0f} zł")
+                        _col_idx += 1
+
+            # --- Sekcja alternatywnego transportu ---
+            alt_options = results.get("alt_transport", [])
+            viable_alts = [a for a in alt_options if a["viable"]]
+            if viable_alts:
+                st.divider()
+                _no_car_label = "**Alternatywy bez samochodu**" if not results.get("suggest_no_car") else "### 🏆 Alternatywy bez samochodu"
+                st.markdown(_no_car_label)
+                alt_cols = st.columns(min(len(viable_alts), 4))
+                for i, alt in enumerate(viable_alts[:4]):
+                    with alt_cols[i]:
                         st.metric(
-                            results[_key]["name"][:30],
-                            f'{results[_key]["monthly"]:,.0f} zł/mies.',
+                            alt["name"][:30],
+                            f'{alt["monthly"]:,.0f} zł/mies.',
                         )
-                        st.caption(f"Cena: {results[_key]['price']:,.0f} zł")
-                    _col_idx += 1
+                        st.caption(alt["desc"])
+
+            # --- Auta powyżej budżetu (collapsed) ---
+            _over_budget = results.get("over_budget", {})
+            if _over_budget:
+                with st.expander(f"🚫 Auta powyżej budżetu ({len(_over_budget)})", expanded=False):
+                    for _key, _data in sorted(_over_budget.items(), key=lambda x: x[1]["monthly"]):
+                        _emoji = {"ice": "🔴", "hyb": "🟠", "bev": "🟢"}.get(_key, "")
+                        st.markdown(
+                            f"{_emoji} **{_data['name']}** — "
+                            f"**{_data['monthly']:,.0f} zł/mies.** "
+                            f"(cena: {_data['price']:,.0f} zł) — "
+                            f"❌ powyżej budżetu {wdata.get('budget_monthly', 0):,} zł/mies."
+                        )
 
         # --- Wykres słupkowy ---
         _chart_names = []
@@ -2095,6 +2365,21 @@ def _render_wizard(fuel_data):
                 _chart_names.append(f"{_prefix}{_name_short}")
                 _chart_values.append(results[_key]["tco_net"])
                 _chart_colors.append(_color)
+
+        # Dodaj alt transport do wykresu (top 2 viable)
+        if not has_car:
+            _viable_alts = [a for a in results.get("alt_transport", []) if a["viable"]]
+            for _alt in _viable_alts[:2]:
+                _chart_names.append(_alt["name"][:20])
+                _chart_values.append(_alt["tco_total"])
+                _chart_colors.append("#3b82f6")  # niebieski
+
+            # Dodaj auta powyżej budżetu (szare, dla skali porównawczej)
+            _over = results.get("over_budget", {})
+            for _ok, _ov in sorted(_over.items(), key=lambda x: x[1]["tco_net"]):
+                _chart_names.append(f"❌ {_ov['name'][:15]}")
+                _chart_values.append(_ov["tco_net"])
+                _chart_colors.append("#d1d5db")  # szary
 
         if _chart_values:
             fig = go.Figure(data=[go.Bar(
@@ -2141,11 +2426,32 @@ def _render_wizard(fuel_data):
                         f"układ wydechowy, uszczelki, korozja podwozia."
                     )
             elif not has_car:
-                st.markdown(
-                    f"- Porównanie obejmuje **{period} lat** użytkowania.\n"
-                    f"- TCO = cena zakupu + paliwo/prąd + serwis + ubezpieczenie − wartość odsprzedaży.\n"
-                    f"- Różnica między najtańszą a najdroższą opcją: **{abs(savings):,.0f} zł**."
-                )
+                if verdict == "no_car":
+                    _viable_alts = [a for a in results.get("alt_transport", []) if a["viable"]]
+                    _cheapest_alt = _viable_alts[0] if _viable_alts else None
+                    _car_opts_m = {k: results[k]["monthly"] for k in ("ice", "bev", "hyb") if k in results}
+                    _cheapest_car_m = min(_car_opts_m.values()) if _car_opts_m else 0
+                    st.markdown(
+                        f"- Przy **{wdata.get('monthly_km', 0)} km/mies.** po mieście "
+                        f"**nie potrzebujesz samochodu** — alternatywy są tańsze.\n"
+                        f"- Najtańsze auto kosztuje ~**{_cheapest_car_m:,.0f} zł/mies.** "
+                        f"(zakup + paliwo + serwis + ubezpieczenie).\n"
+                        + (f"- {_cheapest_alt['name']} to tylko **{_cheapest_alt['monthly']:,.0f} zł/mies.** — "
+                           f"oszczędzasz **{abs(savings):,.0f} zł** w {period} lat.\n"
+                           if _cheapest_alt else "")
+                        + f"- 💡 **Tip**: łącz komunikację z rowerem/hulajnogą i okazjonalnie Uber — "
+                        f"to najtańszy i najwygodniejszy mix."
+                    )
+                    st.info(
+                        "🚌 Komunikacja + 🚗 taxi/Uber okazjonalnie = elastyczność "
+                        "auta bez kosztów stałych (OC, przeglądy, parking, amortyzacja)."
+                    )
+                else:
+                    st.markdown(
+                        f"- Porównanie obejmuje **{period} lat** użytkowania.\n"
+                        f"- TCO = cena zakupu + paliwo/prąd + serwis + ubezpieczenie − wartość odsprzedaży.\n"
+                        f"- Różnica między najtańszą a najdroższą opcją: **{abs(savings):,.0f} zł**."
+                    )
 
         # --- Pro Gate ---
         st.divider()
