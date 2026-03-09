@@ -1800,7 +1800,10 @@ def run_wizard_analysis(wizard_data, fuel_data):
             viable_alts = [a for a in results["alt_transport"] if a["viable"]]
             if viable_alts:
                 best_alt = viable_alts[0]  # najtańsza viable opcja
-                cheapest_car_tco = min(opts.values()) if opts else 99999999
+                # Szukaj najtańszego auta — w budżecie lub over_budget
+                _over_b_tco = {k: v["tco_net"] for k, v in results.get("over_budget", {}).items()}
+                _all_car_tco = {**opts, **_over_b_tco}
+                cheapest_car_tco = min(_all_car_tco.values()) if _all_car_tco else best_alt["tco_total"]
                 savings_total = cheapest_car_tco - best_alt["tco_total"]
                 savings_monthly = savings_total / (period * 12)
                 verdict = "no_car"
@@ -2429,19 +2432,38 @@ def _render_wizard(fuel_data):
                 if verdict == "no_car":
                     _viable_alts = [a for a in results.get("alt_transport", []) if a["viable"]]
                     _cheapest_alt = _viable_alts[0] if _viable_alts else None
+                    # Szukaj najtańszego auta — w budżecie lub over_budget
                     _car_opts_m = {k: results[k]["monthly"] for k in ("ice", "bev", "hyb") if k in results}
-                    _cheapest_car_m = min(_car_opts_m.values()) if _car_opts_m else 0
-                    st.markdown(
-                        f"- Przy **{wdata.get('monthly_km', 0)} km/mies.** po mieście "
-                        f"**nie potrzebujesz samochodu** — alternatywy są tańsze.\n"
-                        f"- Najtańsze auto kosztuje ~**{_cheapest_car_m:,.0f} zł/mies.** "
-                        f"(zakup + paliwo + serwis + ubezpieczenie).\n"
-                        + (f"- {_cheapest_alt['name']} to tylko **{_cheapest_alt['monthly']:,.0f} zł/mies.** — "
-                           f"oszczędzasz **{abs(savings):,.0f} zł** w {period} lat.\n"
-                           if _cheapest_alt else "")
-                        + f"- 💡 **Tip**: łącz komunikację z rowerem/hulajnogą i okazjonalnie Uber — "
+                    _over_b = results.get("over_budget", {})
+                    if not _car_opts_m and _over_b:
+                        _cheapest_car_m = min(v["monthly"] for v in _over_b.values())
+                    elif _car_opts_m:
+                        _cheapest_car_m = min(_car_opts_m.values())
+                    else:
+                        _cheapest_car_m = 0
+
+                    _insights_lines = []
+                    if _cheapest_alt:
+                        _insights_lines.append(
+                            f"- {_cheapest_alt['name']} to tylko **{_cheapest_alt['monthly']:,.0f} zł/mies.**"
+                        )
+                    if _cheapest_car_m > 0:
+                        _insights_lines.append(
+                            f"- Najtańsze auto to ~**{_cheapest_car_m:,.0f} zł/mies.** "
+                            f"(zakup + paliwo + serwis + ubezpieczenie)"
+                        )
+                    if _cheapest_alt and _cheapest_car_m > 0:
+                        _save_m = _cheapest_car_m - _cheapest_alt["monthly"]
+                        if _save_m > 0:
+                            _insights_lines.append(
+                                f"- Oszczędzasz **{_save_m:,.0f} zł/mies.** "
+                                f"(**{_save_m * 12 * period:,.0f} zł** w {period} lat)"
+                            )
+                    _insights_lines.append(
+                        f"- 💡 **Tip**: łącz komunikację z rowerem/hulajnogą i okazjonalnie Uber — "
                         f"to najtańszy i najwygodniejszy mix."
                     )
+                    st.markdown("\n".join(_insights_lines))
                     st.info(
                         "🚌 Komunikacja + 🚗 taxi/Uber okazjonalnie = elastyczność "
                         "auta bez kosztów stałych (OC, przeglądy, parking, amortyzacja)."
