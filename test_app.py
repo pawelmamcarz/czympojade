@@ -987,7 +987,66 @@ class TestTCOQuickLPG:
 
 class TestVersion23:
     def test_version_23(self):
-        assert app.APP_VERSION == "23.0"
+        assert app.APP_VERSION == "23.1"
+
+
+class TestAgingCost:
+    """Testy dla calculate_aging_cost() — koszty starzenia starych aut."""
+
+    def test_new_car_no_aging(self):
+        """Nowe auto (wiek 0) — brak kosztów starzenia w 5 lat."""
+        result = app.calculate_aging_cost("C – Kompakt", 0, 0, 15_000, 5, "ICE")
+        assert result["total"] == 0
+        assert result["applies"] is False
+
+    def test_young_car_no_aging(self):
+        """3-letnie auto — nadal poniżej progu 8 lat w horyzoncie 4 lat."""
+        result = app.calculate_aging_cost("C – Kompakt", 3, 45_000, 15_000, 4, "ICE")
+        assert result["total"] == 0
+        assert result["applies"] is False
+
+    def test_old_car_has_aging(self):
+        """6-letnie auto, horyzont 5 lat → wiek 7-11, koszty od roku 8+."""
+        result = app.calculate_aging_cost("C – Kompakt", 6, 90_000, 15_000, 5, "ICE")
+        assert result["total"] > 0
+        assert result["applies"] is True
+        # Rok 1: wiek 7 (<8) = 0, Rok 2: wiek 8 (>=8) > 0
+        assert result["yearly"][0] == 0   # wiek 7
+        assert result["yearly"][1] > 0    # wiek 8
+
+    def test_very_old_car_high_cost(self):
+        """10-letnie auto — koszty od pierwszego roku, rosnące."""
+        result = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "ICE")
+        assert result["total"] > 0
+        # Koszty rosną rok do roku
+        costs = [c for c in result["yearly"] if c > 0]
+        assert len(costs) == 5
+        for i in range(1, len(costs)):
+            assert costs[i] > costs[i - 1]
+
+    def test_bev_lower_aging(self):
+        """BEV ma 30% kosztu starzenia ICE."""
+        ice = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "ICE")
+        bev = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "BEV")
+        assert bev["total"] == pytest.approx(ice["total"] * 0.3, rel=0.01)
+
+    def test_hev_medium_aging(self):
+        """HEV ma 70% kosztu starzenia ICE."""
+        ice = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "ICE")
+        hev = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "HEV")
+        assert hev["total"] == pytest.approx(ice["total"] * 0.7, rel=0.01)
+
+    def test_high_mileage_multiplier(self):
+        """Przebieg > 150k km daje ×1.3 mnożnik."""
+        low = app.calculate_aging_cost("C – Kompakt", 10, 100_000, 10_000, 5, "ICE")
+        high = app.calculate_aging_cost("C – Kompakt", 10, 200_000, 10_000, 5, "ICE")
+        assert high["total"] > low["total"]
+
+    def test_segment_affects_cost(self):
+        """Premium segment droższy niż Małe."""
+        small = app.calculate_aging_cost("B – Małe", 10, 150_000, 15_000, 5, "ICE")
+        premium = app.calculate_aging_cost("E – Wyższy", 10, 150_000, 15_000, 5, "ICE")
+        assert premium["total"] > small["total"]
 
 
 if __name__ == "__main__":

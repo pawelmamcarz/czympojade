@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "23.0"
+APP_VERSION = "23.1"
 
 import re
 import streamlit as st
@@ -281,6 +281,22 @@ WIZARD_FUEL_MAP = {
     "Hybryda": (0, "HEV"),
     "Elektryczny": (0, "BEV"),
 }
+
+# ---------------------------------------------------------------------------
+# Koszty starzenia: nieplanowane naprawy + korozja (zł/rok) wg segmentu
+# Aktywują się od roku 8 i rosną progresywnie
+# ---------------------------------------------------------------------------
+AGING_REPAIR_BASE = {
+    "B – Małe":    1_800,
+    "C – Kompakt": 2_500,
+    "D – Średni":  3_500,
+    "E – Wyższy":  5_000,
+    "Redneck 🤠":  4_000,
+}
+AGING_START_YEAR = 8          # od tego roku życia auta ruszają koszty starzenia
+AGING_MILEAGE_THRESHOLD = 150_000  # km — powyżej dodatkowy mnożnik
+AGING_GROWTH_RATE = 0.15     # +15% rocznie powyżej AGING_START_YEAR
+AGING_HIGH_MILEAGE_MULT = 1.3  # ×1.3 jeśli przebieg > threshold
 
 # ---------------------------------------------------------------------------
 # SCT – Strefa Czystego Transportu (Warszawa 2026 / Kraków 2026)
@@ -979,6 +995,56 @@ def calculate_maintenance_cost(
                 "tesla_warranty": is_tesla and is_new}
 
 
+def calculate_aging_cost(segment_key, car_start_age, start_mileage, annual_km,
+                         period_years, engine_type):
+    """Koszty starzenia (nieplanowane naprawy, korozja) dla starych aut.
+
+    Od AGING_START_YEAR (8) koszty rosną progresywnie o AGING_GROWTH_RATE (15%)
+    rocznie. Wysoki przebieg (>150k km) mnoży koszt ×1.3.
+
+    BEV: penalty ×0.3 (brak układu wydechowego, mniej płynów/ruchomych części).
+    HEV/PHEV: penalty ×0.7 (układ spalinowy, ale mniejsze zużycie).
+    ICE/LPG: penalty ×1.0 (pełne koszty starzenia).
+    """
+    if engine_type == "BEV":
+        drivetrain_factor = 0.3
+    elif engine_type in ("HEV", "PHEV"):
+        drivetrain_factor = 0.7
+    else:
+        drivetrain_factor = 1.0
+
+    base = AGING_REPAIR_BASE.get(segment_key, 2_500)
+    total = 0.0
+    yearly_costs = []
+
+    for yr in range(1, period_years + 1):
+        car_age = car_start_age + yr
+        mileage_at_year = start_mileage + annual_km * yr
+
+        if car_age < AGING_START_YEAR:
+            yearly_costs.append(0.0)
+            continue
+
+        years_over = car_age - AGING_START_YEAR
+        # Progresywny wzrost: base × (1 + 0.15)^years_over
+        cost = base * ((1 + AGING_GROWTH_RATE) ** years_over)
+
+        # Mnożnik za duży przebieg
+        if mileage_at_year > AGING_MILEAGE_THRESHOLD:
+            cost *= AGING_HIGH_MILEAGE_MULT
+
+        cost *= drivetrain_factor
+        yearly_costs.append(cost)
+        total += cost
+
+    return {
+        "total": total,
+        "yearly": yearly_costs,
+        "annual_avg": total / period_years if period_years > 0 else 0,
+        "applies": any(c > 0 for c in yearly_costs),
+    }
+
+
 # ---------------------------------------------------------------------------
 # LEASING / FINANSOWANIE
 # ---------------------------------------------------------------------------
@@ -1352,8 +1418,19 @@ def run_wizard_analysis(wizard_data, fuel_data):
             use_tax=False,
         )
         r_keep = calculate_tco_quick(**keep_kw)
+
+        # --- Koszty starzenia dla "zachowaj" ---
+        car_age = wizard_data.get("car_age", 0)
+        start_mileage = wizard_data.get("start_mileage", car_age * 15_000)
+        aging = calculate_aging_cost(
+            segment_key, car_age, start_mileage, annual_mileage,
+            period, engine_type,
+        )
+        r_keep["tco_net"] = r_keep.get("tco_net", 0) + aging["total"]
+        r_keep["monthly"] = r_keep["tco_net"] / (period * 12)
+
         results["keep"] = {
-            "name": keep_name, **r_keep,
+            "name": keep_name, **r_keep, "aging": aging,
         }
 
         # --- Scenariusz "ZMIEŃ na BEV" ---
@@ -1715,6 +1792,15 @@ def _render_wizard(fuel_data):
                     key="wiz_km",
                 )
 
+                start_mileage = st.number_input(
+                    "Aktualny przebieg (km)",
+                    min_value=0, max_value=500_000,
+                    value=wdata.get("start_mileage", car_age * 15_000),
+                    step=10_000,
+                    key="wiz_start_mileage",
+                    help="Przybliżony odczyt z licznika. Wpływa na koszty napraw starszych aut.",
+                )
+
         else:
             col_a, col_b = st.columns(2)
             with col_a:
@@ -1754,6 +1840,7 @@ def _render_wizard(fuel_data):
                     wdata["current_segment_label"] = current_segment
                     wdata["car_age"] = car_age
                     wdata["car_value"] = car_value
+                    wdata["start_mileage"] = start_mileage
                 else:
                     wdata["budget_monthly"] = budget_monthly
                     wdata["prefer_new"] = prefer_new
@@ -1968,6 +2055,17 @@ def _render_wizard(fuel_data):
                     st.warning(
                         "Nie masz garażu — ładowanie EV w domu jest trudniejsze. "
                         "Rozważ publiczne ładowarki lub wallbox na parkingu."
+                    )
+                # Ostrzeżenie o starzeniu auta
+                _aging = results["keep"].get("aging", {})
+                if _aging.get("applies"):
+                    _end_age = wdata.get("car_age", 0) + period
+                    st.warning(
+                        f"⚠️ Twoje auto będzie miało **{_end_age} lat** na koniec analizy. "
+                        f"Szacowane koszty nieplanowanych napraw i korozji: "
+                        f"**{_aging['total']:,.0f} zł** ({_aging['annual_avg']:,.0f} zł/rok). "
+                        f"Im starsze auto, tym więcej niespodzianek — alternator, zawieszenie, "
+                        f"układ wydechowy, uszczelki, korozja podwozia."
                     )
             elif not has_car:
                 st.markdown(
