@@ -5278,9 +5278,9 @@ st.markdown(
     '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
     ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
     ' · +48 535 535 221<br><br>'
-    '<a href="https://buymeacoffee.com/pawelmamcarz" target="_blank">'
-    '<img src="https://img.shields.io/badge/Postaw_mi_kawę-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" '
-    'alt="Buy Me A Coffee" style="vertical-align: middle;">'
+    '<a href="https://buycoffee.to/pawelmamcarz" target="_blank">'
+    '<img src="https://buycoffee.to/btn/buycoffeeto-btn-primary.svg" '
+    'alt="Postaw mi kawę na buycoffee.to" style="height: 36px; vertical-align: middle;">'
     '</a>'
     '</div>',
     unsafe_allow_html=True,
