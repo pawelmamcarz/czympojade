@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "23.2"
+APP_VERSION = "23.3"
 
 import math
 import re
@@ -310,8 +310,10 @@ AGING_HIGH_MILEAGE_MULT = 1.3  # ×1.3 jeśli przebieg > threshold
 # Formuła: retention = floor + (1 - floor) * exp(-rate * age)
 # Stare 0.85^age dawało 11k za 15-letniego kompakta; realna cena ~21k
 # ---------------------------------------------------------------------------
-DEPR_FLOOR = 0.12          # 12% – stare auto ciągle coś warte (blacha, silnik, części)
+DEPR_FLOOR = 0.04          # 4% – stare auto ciągle coś warte, ale nie za dużo
 DEPR_RATE = 0.18           # tempo spadku (kalibracja na Otomoto: Corolla, Golf, Yaris, BMW 3)
+# v23.3: obniżono floor z 0.12 → 0.04 — stara wartość dawała 18.7k za 20-letniego
+# kompakta (realnie 5-8k). Teraz: Kompakt 130k → 56k(5l), 26k(10l), 14k(15l), 9k(20l)
 
 # ---------------------------------------------------------------------------
 # SCT – Strefa Czystego Transportu (Warszawa 2026 / Kraków 2026)
@@ -1014,10 +1016,10 @@ def estimate_car_value(base_price: int, age: int) -> int:
     """Szacuj wartość rynkową auta (krzywa kalibrowana na Otomoto 03/2026).
 
     Formuła: retention = DEPR_FLOOR + (1 - DEPR_FLOOR) * exp(-DEPR_RATE * age)
-    Daje realistyczne wartości:
-        Kompakt 130k nowy → ~64k (5 lat), ~35k (10 lat), ~23k (15 lat)
-    vs stara formuła 0.85^age:
-        Kompakt 130k nowy → ~58k (5 lat), ~26k (10 lat), ~11k (15 lat)
+    v23.3 (floor 0.04):
+        Kompakt 130k nowy → ~56k (5 lat), ~26k (10 lat), ~14k (15 lat), ~9k (20 lat)
+    v23.2 (floor 0.12):
+        Kompakt 130k nowy → ~62k (5 lat), ~35k (10 lat), ~23k (15 lat), ~19k (20 lat)
     """
     retention = DEPR_FLOOR + (1.0 - DEPR_FLOOR) * math.exp(-DEPR_RATE * age)
     return max(int(base_price * retention), 3_000)
@@ -1825,17 +1827,27 @@ def _render_wizard(fuel_data):
 
             with col_b:
                 car_age = st.slider(
-                    "Wiek auta (lat)", 0, 15,
+                    "Wiek auta (lat)", 0, 20,
                     value=wdata.get("car_age", 5),
                     key="wiz_age",
                 )
                 # Estymacja wartości z segmentu i wieku (krzywa Otomoto)
                 base_price = WIZARD_SEGMENT_BASE_PRICE.get(current_segment, 130_000)
                 estimated_value = estimate_car_value(base_price, car_age)
+
+                # Reaktywność: jeśli zmienił się wiek lub segment, przelicz wartość
+                _prev_age = wdata.get("car_age")
+                _prev_seg = wdata.get("current_segment_label")
+                if ((_prev_age is not None and _prev_age != car_age)
+                        or (_prev_seg is not None and _prev_seg != current_segment)):
+                    _val_default = estimated_value
+                else:
+                    _val_default = wdata.get("car_value", estimated_value)
+
                 car_value = st.number_input(
                     "Przybliżona wartość (zł)",
                     min_value=3_000, max_value=500_000,
-                    value=wdata.get("car_value", estimated_value),
+                    value=_val_default,
                     step=5_000,
                     key="wiz_value",
                     help="Ile mniej-więcej warte jest Twoje auto dziś? Estymacja na bazie Otomoto.",

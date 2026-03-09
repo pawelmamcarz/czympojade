@@ -1,0 +1,154 @@
+brand,model,variant,price_pln,engine_type,fuel_type,fuel_city_l,fuel_hwy_l,battery_kwh,consumption_city_kwh,consumption_hwy_kwh,elec_pct,segment
+Toyota,Yaris,1.5 Hybrid Active,95000,HEV,0,3.8,4.8,0,0,0,0,B – Małe
+Toyota,Yaris Cross,1.5 Hybrid Comfort,120000,HEV,0,4.8,5.5,0,0,0,0,B – Małe
+Toyota,Corolla,1.8 Hybrid Comfort,135000,HEV,0,4.5,5.5,0,0,0,0,C – Kompakt
+Toyota,Corolla,2.0 Hybrid GR Sport,155000,HEV,0,4.3,5.0,0,0,0,0,C – Kompakt
+Toyota,C-HR,2.0 Hybrid Active,150000,HEV,0,4.8,5.5,0,0,0,0,C – Kompakt
+Toyota,Camry,2.5 Hybrid Executive,175000,HEV,0,5.0,5.5,0,0,0,0,D – Średni
+Toyota,RAV4,2.5 Hybrid AWD,185000,HEV,0,5.5,6.5,0,0,0,0,D – Średni
+Toyota,RAV4,2.5 PHEV AWD,235000,PHEV,0,1.0,6.0,18.1,14.0,17.0,0.65,D – Średni
+Toyota,bZ4X,FWD,189000,BEV,0,0,0,71.4,16.0,19.5,0,D – Średni
+Toyota,Proace City,1.5 D-4D Active,115000,ICE,1,5.5,5.0,0,0,0,0,Van – Mały
+Toyota,Proace City Verso,1.5 D-4D Comfort,125000,ICE,1,5.8,5.2,0,0,0,0,Van – Mały
+Toyota,Proace City Electric,Active,165000,BEV,0,0,0,50,16.5,19.0,0,Van – Mały
+Toyota,Proace,2.0 D-4D Active L1,165000,ICE,1,6.5,5.8,0,0,0,0,Van – Duży
+Toyota,Proace Electric,Active L1,210000,BEV,0,0,0,75,19.0,22.0,0,Van – Duży
+VW,Polo,1.0 TSI Life,95000,ICE,0,6.5,5.0,0,0,0,0,B – Małe
+VW,Golf,2.0 TDI Life,145000,ICE,1,6.5,5.0,0,0,0,0,C – Kompakt
+VW,Golf,1.5 eTSI Life,135000,ICE,0,6.8,5.2,0,0,0,0,C – Kompakt
+VW,Tiguan,1.5 TSI Life,175000,ICE,0,7.8,6.2,0,0,0,0,D – Średni
+VW,Tiguan,2.0 TDI 4MOTION,195000,ICE,1,7.0,5.8,0,0,0,0,D – Średni
+VW,Passat,2.0 TDI Business,185000,ICE,1,6.5,5.0,0,0,0,0,D – Średni
+VW,ID.3,Pro S,165000,BEV,0,0,0,77,15.5,18.5,0,C – Kompakt
+VW,ID.4,Pro Performance,195000,BEV,0,0,0,77,17.0,20.0,0,D – Średni
+VW,ID.7,Pro S,235000,BEV,0,0,0,86,15.5,18.0,0,D – Średni
+VW,Caddy,2.0 TDI Kombi,130000,ICE,1,6.2,5.5,0,0,0,0,Van – Mały
+VW,Caddy,1.5 TSI Kombi,120000,ICE,0,7.5,6.0,0,0,0,0,Van – Mały
+VW,Transporter,2.0 TDI T6.1,185000,ICE,1,8.5,7.0,0,0,0,0,Van – Duży
+VW,ID.Buzz Cargo,Pro,245000,BEV,0,0,0,77,19.0,22.5,0,Van – Duży
+Hyundai,i20,1.2 Classic Plus,78000,ICE,0,6.0,4.8,0,0,0,0,B – Małe
+Hyundai,i30,1.5 T-GDi Smart,120000,ICE,0,7.0,5.5,0,0,0,0,C – Kompakt
+Hyundai,Tucson,1.6 T-GDi Smart,155000,ICE,0,8.5,6.8,0,0,0,0,D – Średni
+Hyundai,Tucson,1.6 T-GDi Hybrid,175000,HEV,0,5.5,6.0,0,0,0,0,D – Średni
+Hyundai,Ioniq 5,Long Range RWD,215000,BEV,0,0,0,77,16.5,19.5,0,D – Średni
+Hyundai,Ioniq 6,Long Range RWD,205000,BEV,0,0,0,77,13.5,15.5,0,C – Kompakt
+Hyundai,Kona Electric,Long Range,175000,BEV,0,0,0,65,14.5,17.0,0,B – Małe
+Kia,Picanto,1.0 M,55000,ICE,0,5.5,4.2,0,0,0,0,A – Mini
+Kia,Rio,1.0 T-GDi M,78000,ICE,0,6.0,4.8,0,0,0,0,B – Małe
+Kia,Ceed,1.5 T-GDi M,115000,ICE,0,6.8,5.2,0,0,0,0,C – Kompakt
+Kia,Sportage,1.6 T-GDi GT-Line,150000,ICE,0,8.5,7.0,0,0,0,0,D – Średni
+Kia,Sportage,1.6 T-GDi HEV,170000,HEV,0,5.5,6.5,0,0,0,0,D – Średni
+Kia,EV6,Standard Range RWD,195000,BEV,0,0,0,58,16.5,19.5,0,D – Średni
+Kia,EV6,Long Range RWD,225000,BEV,0,0,0,77,16.0,18.5,0,D – Średni
+Kia,Niro,1.6 PHEV L,165000,PHEV,0,1.4,5.5,11.1,14.0,17.0,0.60,C – Kompakt
+Kia,Niro EV,Long Range,175000,BEV,0,0,0,65,15.0,17.5,0,C – Kompakt
+Skoda,Fabia,1.0 TSI Ambition,88000,ICE,0,6.0,4.5,0,0,0,0,B – Małe
+Skoda,Octavia,2.0 TDI Ambition,140000,ICE,1,6.5,4.8,0,0,0,0,C – Kompakt
+Skoda,Octavia,1.5 TSI Ambition,130000,ICE,0,7.0,5.2,0,0,0,0,C – Kompakt
+Skoda,Karoq,1.5 TSI Ambition,135000,ICE,0,7.5,6.0,0,0,0,0,C – Kompakt
+Skoda,Kodiaq,2.0 TDI 4x4 Ambition,190000,ICE,1,7.5,6.0,0,0,0,0,D – Średni
+Skoda,Enyaq iV,80 Ambition,199000,BEV,0,0,0,77,17.5,20.5,0,D – Średni
+Skoda,Enyaq Coupe,80 Sportline,215000,BEV,0,0,0,77,16.5,19.5,0,D – Średni
+Skoda,Superb,2.0 TDI Ambition,175000,ICE,1,6.0,4.8,0,0,0,0,E – Wyższy
+Ford,Fiesta,1.0 EcoBoost Titanium,88000,ICE,0,6.2,4.8,0,0,0,0,B – Małe
+Ford,Focus,1.0 EcoBoost Titanium,105000,ICE,0,6.5,5.0,0,0,0,0,C – Kompakt
+Ford,Kuga,2.5 FHEV Titanium,155000,HEV,0,5.5,6.5,0,0,0,0,D – Średni
+Ford,Kuga,2.5 PHEV Titanium,185000,PHEV,0,1.2,6.0,14.4,15.0,18.0,0.60,D – Średni
+Ford,Mustang Mach-E,Standard Range RWD,215000,BEV,0,0,0,75,17.0,20.0,0,D – Średni
+Ford,Transit Custom,2.0 EcoBlue Trend L1,175000,ICE,1,7.5,6.5,0,0,0,0,Van – Duży
+Ford,Transit Connect,1.5 EcoBlue Trend L1,115000,ICE,1,5.8,5.2,0,0,0,0,Van – Mały
+Ford,E-Transit Custom,Trend L1,235000,BEV,0,0,0,74,20.0,23.0,0,Van – Duży
+BMW,Seria 3,320i M Sport,210000,ICE,0,7.5,5.8,0,0,0,0,E – Wyższy
+BMW,Seria 3,320d M Sport,225000,ICE,1,6.5,5.0,0,0,0,0,E – Wyższy
+BMW,iX1,xDrive30,220000,BEV,0,0,0,65,16.5,19.5,0,D – Średni
+BMW,i4,eDrive40,265000,BEV,0,0,0,84,16.0,18.5,0,E – Wyższy
+BMW,iX3,M Sport,285000,BEV,0,0,0,80,17.5,20.5,0,D – Średni
+Mercedes,Klasa A,A 200 AMG Line,165000,ICE,0,7.0,5.5,0,0,0,0,C – Kompakt
+Mercedes,Klasa C,C 200 AMG Line,230000,ICE,0,7.5,5.8,0,0,0,0,E – Wyższy
+Mercedes,EQA,250+,225000,BEV,0,0,0,70,16.5,19.5,0,D – Średni
+Mercedes,EQB,250+,255000,BEV,0,0,0,70,17.5,21.0,0,D – Średni
+Mercedes,eVito,Tourer Long,255000,BEV,0,0,0,60,22.0,26.0,0,Van – Duży
+Audi,A3,35 TFSI S line,155000,ICE,0,7.0,5.5,0,0,0,0,C – Kompakt
+Audi,A4,40 TFSI S line,215000,ICE,0,7.5,5.8,0,0,0,0,E – Wyższy
+Audi,Q4 e-tron,40,215000,BEV,0,0,0,77,17.0,20.0,0,D – Średni
+Tesla,Model 3,RWD,175000,BEV,0,0,0,60,13.5,16.0,0,C – Kompakt
+Tesla,Model 3,Long Range AWD,205000,BEV,0,0,0,75,14.0,16.5,0,C – Kompakt
+Tesla,Model Y,RWD,189000,BEV,0,0,0,60,14.5,17.0,0,D – Średni
+Tesla,Model Y,Long Range AWD,225000,BEV,0,0,0,75,15.0,17.5,0,D – Średni
+MG,MG4,Electric Standard,105000,BEV,0,0,0,51,15.0,18.0,0,B – Małe
+MG,MG4,Electric Long Range,125000,BEV,0,0,0,64,15.5,18.5,0,B – Małe
+MG,ZS EV,Standard Range,115000,BEV,0,0,0,51,16.0,19.0,0,C – Kompakt
+Dacia,Sandero,TCe 90 Expression,55000,ICE,0,5.5,4.5,0,0,0,0,B – Małe
+Dacia,Sandero,TCe 100 LPG ECO-G,58000,ICE,2,9.0,7.5,0,0,0,0,B – Małe
+Dacia,Duster,TCe 130 Expression,85000,ICE,0,7.0,5.8,0,0,0,0,C – Kompakt
+Dacia,Duster,Hybrid 140 Expression,105000,HEV,0,4.7,5.3,0,0,0,0,C – Kompakt
+Dacia,Jogger,TCe 110 Expression,75000,ICE,0,6.5,5.5,0,0,0,0,C – Kompakt
+Dacia,Jogger,Hybrid 140 Expression,98000,HEV,0,4.7,5.3,0,0,0,0,C – Kompakt
+Dacia,Spring,Electric Essential,85000,BEV,0,0,0,27,14.0,17.0,0,A – Mini
+Renault,Clio,TCe 90 Equilibre,78000,ICE,0,6.0,5.0,0,0,0,0,B – Małe
+Renault,Clio,E-Tech Hybrid 143,98000,HEV,0,4.2,5.0,0,0,0,0,B – Małe
+Renault,Megane E-Tech,EV60 Equilibre,165000,BEV,0,0,0,60,15.5,17.5,0,C – Kompakt
+Renault,Scenic E-Tech,EV87 Techno,195000,BEV,0,0,0,87,17.0,19.5,0,C – Kompakt
+Renault,Austral,E-Tech Hybrid 200,155000,HEV,0,4.6,5.5,0,0,0,0,D – Średni
+Renault,Kangoo,1.5 dCi 95 Zen,115000,ICE,1,5.5,5.0,0,0,0,0,Van – Mały
+Renault,Trafic,2.0 dCi 130 Zen,165000,ICE,1,7.5,6.5,0,0,0,0,Van – Duży
+Renault,Renault 5,E-Tech Electric 52,125000,BEV,0,0,0,52,14.5,17.0,0,B – Małe
+Peugeot,208,1.2 PureTech 100 Active,85000,ICE,0,5.8,4.5,0,0,0,0,B – Małe
+Peugeot,e-208,Active,145000,BEV,0,0,0,50,15.0,17.0,0,B – Małe
+Peugeot,308,1.2 PureTech 130 Active,115000,ICE,0,6.5,5.0,0,0,0,0,C – Kompakt
+Peugeot,3008,1.2 PureTech 130 Active,145000,ICE,0,7.0,5.5,0,0,0,0,D – Średni
+Peugeot,e-3008,Allure,195000,BEV,0,0,0,73,17.0,19.5,0,D – Średni
+Peugeot,Partner,1.5 BlueHDi 100 Active,105000,ICE,1,5.5,5.0,0,0,0,0,Van – Mały
+Peugeot,e-Partner,Active,165000,BEV,0,0,0,50,17.0,20.0,0,Van – Mały
+Peugeot,Expert,1.5 BlueHDi 120 Active,145000,ICE,1,6.5,5.8,0,0,0,0,Van – Duży
+Citroen,C3,1.2 PureTech 100 Feel,72000,ICE,0,5.8,4.5,0,0,0,0,B – Małe
+Citroen,e-C3,Feel,95000,BEV,0,0,0,44,15.0,17.0,0,B – Małe
+Citroen,C4,1.2 PureTech 130 Feel,105000,ICE,0,6.5,5.0,0,0,0,0,C – Kompakt
+Citroen,e-C4,Feel,145000,BEV,0,0,0,50,15.5,17.5,0,C – Kompakt
+Citroen,Berlingo,1.5 BlueHDi 100 Feel,105000,ICE,1,5.5,5.0,0,0,0,0,Van – Mały
+Citroen,e-Berlingo,Feel,165000,BEV,0,0,0,50,17.0,20.0,0,Van – Mały
+Citroen,Jumpy,1.5 BlueHDi 120 Business,145000,ICE,1,6.5,5.8,0,0,0,0,Van – Duży
+Fiat,500,1.0 Hybrid Cult,75000,ICE,0,5.5,4.5,0,0,0,0,A – Mini
+Fiat,500e,La Prima,120000,BEV,0,0,0,42,13.0,16.0,0,A – Mini
+Fiat,Tipo,1.0 T3 City Life,85000,ICE,0,6.5,5.2,0,0,0,0,C – Kompakt
+Fiat,Doblo,1.5 BlueHDi Lounge,115000,ICE,1,5.5,5.0,0,0,0,0,Van – Mały
+Opel,Corsa,1.2 Turbo Edition,88000,ICE,0,6.5,5.0,0,0,0,0,B – Małe
+Opel,Corsa-e,Edition,135000,BEV,0,0,0,50,15.0,17.5,0,B – Małe
+Opel,Astra,1.2 Turbo Edition,115000,ICE,0,6.5,5.0,0,0,0,0,C – Kompakt
+Opel,Mokka,1.2 Turbo Edition,105000,ICE,0,6.8,5.5,0,0,0,0,B – Małe
+Opel,Mokka-e,Edition,145000,BEV,0,0,0,50,15.5,18.0,0,B – Małe
+Opel,Combo Life,1.5 Diesel Edition,105000,ICE,1,5.5,5.0,0,0,0,0,Van – Mały
+Opel,Combo-e Life,Edition,165000,BEV,0,0,0,50,17.0,20.0,0,Van – Mały
+Opel,Vivaro,2.0 Diesel Edition,155000,ICE,1,7.0,6.0,0,0,0,0,Van – Duży
+Mazda,Mazda3,2.0 Skyactiv-G M Hybrid,125000,ICE,0,6.5,5.0,0,0,0,0,C – Kompakt
+Mazda,CX-5,2.0 Skyactiv-G Newground,145000,ICE,0,7.5,6.0,0,0,0,0,D – Średni
+Mazda,CX-60,3.3 Skyactiv-D Exclusive-Line,225000,ICE,1,5.5,5.0,0,0,0,0,E – Wyższy
+Mazda,CX-60,2.5 PHEV Homura,245000,PHEV,0,1.5,6.5,17.8,15.0,18.0,0.55,E – Wyższy
+Nissan,Juke,1.0 DIG-T Acenta,105000,ICE,0,6.5,5.2,0,0,0,0,B – Małe
+Nissan,Qashqai,1.3 DIG-T mHEV Acenta,130000,ICE,0,7.0,5.8,0,0,0,0,C – Kompakt
+Nissan,Qashqai,e-Power Acenta,155000,HEV,0,5.3,6.0,0,0,0,0,C – Kompakt
+Nissan,X-Trail,e-Power Acenta,165000,HEV,0,5.8,6.8,0,0,0,0,D – Średni
+Nissan,Ariya,63 kWh Advance,215000,BEV,0,0,0,63,16.0,19.5,0,D – Średni
+Nissan,Townstar,1.3 DIG-T Acenta,115000,ICE,0,6.5,5.5,0,0,0,0,Van – Mały
+Honda,Civic,2.0 e:HEV Elegance,135000,HEV,0,4.5,5.5,0,0,0,0,C – Kompakt
+Honda,HR-V,1.5 e:HEV Elegance,135000,HEV,0,5.0,6.0,0,0,0,0,C – Kompakt
+Honda,ZR-V,2.0 e:HEV Advance,165000,HEV,0,5.5,6.5,0,0,0,0,D – Średni
+Honda,e:Ny1,Advance,195000,BEV,0,0,0,69,16.0,19.0,0,C – Kompakt
+Volvo,XC40,B3 Core,175000,ICE,0,7.5,6.0,0,0,0,0,D – Średni
+Volvo,EX30,Single Motor Extended Range,155000,BEV,0,0,0,69,15.0,17.5,0,B – Małe
+Volvo,EX40,Single Motor,215000,BEV,0,0,0,69,17.0,20.0,0,D – Średni
+Volvo,XC60,B4 Core,215000,ICE,0,7.5,6.5,0,0,0,0,D – Średni
+Suzuki,Swift,1.2 DualJet Hybrid GL+,72000,HEV,0,4.5,5.0,0,0,0,0,B – Małe
+Suzuki,Vitara,1.5 Strong Hybrid Premium,115000,HEV,0,5.0,6.0,0,0,0,0,C – Kompakt
+Suzuki,S-Cross,1.5 Strong Hybrid Premium,125000,HEV,0,5.3,6.2,0,0,0,0,C – Kompakt
+BYD,Dolphin,Active,105000,BEV,0,0,0,44,13.5,16.0,0,B – Małe
+BYD,Atto 3,Comfort,145000,BEV,0,0,0,60,16.0,19.0,0,C – Kompakt
+BYD,Seal,Dynamic,185000,BEV,0,0,0,82,14.5,17.5,0,C – Kompakt
+BYD,Tang EV,Executive,245000,BEV,0,0,0,87,18.0,22.0,0,D – Średni
+Cupra,Born,e-Boost 170 kW,155000,BEV,0,0,0,58,15.5,18.5,0,C – Kompakt
+Cupra,Formentor,1.5 TSI DSG,155000,ICE,0,7.5,5.8,0,0,0,0,D – Średni
+Cupra,Tavascan,VZ,235000,BEV,0,0,0,77,17.5,20.5,0,D – Średni
+Lexus,NX,350h Elegance,225000,HEV,0,5.5,6.0,0,0,0,0,D – Średni
+Lexus,NX,450h+ F Sport,295000,PHEV,0,1.0,6.5,18.1,14.0,17.0,0.65,D – Średni
+Lexus,UX,300e Elegance,195000,BEV,0,0,0,73,16.0,18.5,0,C – Kompakt
+Lexus,RZ,450e Elegance,265000,BEV,0,0,0,72,16.5,19.5,0,D – Średni
