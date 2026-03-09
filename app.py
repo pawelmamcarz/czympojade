@@ -1636,51 +1636,83 @@ def run_wizard_analysis(wizard_data, fuel_data):
             "name": keep_name, **r_keep, "aging": aging,
         }
 
-        # --- Scenariusz "ZMIEŃ na BEV" ---
-        bev_name, bev_p = auto_select_preset(BEV_PRESETS_NEW, segment_key)
-        if bev_p is None:
-            bev_name, bev_p = auto_select_preset(BEV_PRESETS_NEW, "C – Kompakt")
-        if bev_p:
-            r_bev = calculate_tco_quick(
-                vehicle_price=bev_p["price"], engine_type="BEV", is_new=True,
-                annual_mileage=annual_mileage, period_years=period, road_split=road_split,
-                city_kwh=bev_p["city_kwh"], highway_kwh=bev_p["hwy_kwh"],
-                battery_cap=bev_p["bat"],
-                pv_kwp=pv_kwp, bess_kwh=bess_kwh,
-                has_home_charger=has_garage,
-                has_dynamic_tariff=has_garage and has_pv,
-                use_tax=False,
-            )
-            # Odejmij trade-in wartość obecnego auta
-            r_bev_adj = dict(r_bev)
-            r_bev_adj["tco_net"] = r_bev["tco_net"] - car_value
-            r_bev_adj["monthly"] = r_bev_adj["tco_net"] / (period * 12)
-            results["bev"] = {"name": bev_name, "price": bev_p["price"], **r_bev_adj}
+        # --- Scenariusze alternatyw zależne od napędu obecnego auta ---
+        # BEV owner → nie proponuj BEV, proponuj ICE + HYB
+        # HEV owner → nie proponuj HYB, proponuj BEV + ICE
+        # ICE owner → proponuj BEV + HYB (jak dotychczas)
+        _offer_bev = engine_type != "BEV"
+        _offer_hyb = engine_type not in ("HEV", "PHEV")
+        _offer_ice = engine_type in ("BEV", "HEV", "PHEV")
 
-        # --- Scenariusz "ZMIEŃ na HYB" ---
-        hyb_name, hyb_p = auto_select_preset(HYB_PRESETS_NEW, segment_key)
-        if hyb_p is None:
-            hyb_name, hyb_p = auto_select_preset(HYB_PRESETS_NEW, "C – Kompakt")
-        if hyb_p:
-            hyb_etype = hyb_p.get("hybrid_type", "HEV")
-            hyb_elec = hyb_p.get("elec_pct", 0)
-            r_hyb = calculate_tco_quick(
-                vehicle_price=hyb_p["price"], engine_type=hyb_etype, is_new=True,
-                annual_mileage=annual_mileage, period_years=period, road_split=road_split,
-                fuel_price=fuel_data["pb95"],
-                city_l=hyb_p.get("city_l", 5.0), highway_l=hyb_p.get("hwy_l", 5.5),
-                city_kwh=hyb_p.get("city_kwh", 0), highway_kwh=hyb_p.get("hwy_kwh", 0),
-                battery_cap=hyb_p.get("bat", 0),
-                pv_kwp=pv_kwp if hyb_etype == "PHEV" else 0,
-                has_home_charger=has_garage if hyb_etype == "PHEV" else False,
-                has_dynamic_tariff=(has_garage and has_pv) if hyb_etype == "PHEV" else False,
-                elec_pct=hyb_elec,
-                use_tax=False,
-            )
-            r_hyb_adj = dict(r_hyb)
-            r_hyb_adj["tco_net"] = r_hyb["tco_net"] - car_value
-            r_hyb_adj["monthly"] = r_hyb_adj["tco_net"] / (period * 12)
-            results["hyb"] = {"name": hyb_name, "price": hyb_p["price"], **r_hyb_adj}
+        if _offer_bev:
+            # --- Scenariusz "ZMIEŃ na BEV" ---
+            bev_name, bev_p = auto_select_preset(BEV_PRESETS_NEW, segment_key)
+            if bev_p is None:
+                bev_name, bev_p = auto_select_preset(BEV_PRESETS_NEW, "C – Kompakt")
+            if bev_p:
+                r_bev = calculate_tco_quick(
+                    vehicle_price=bev_p["price"], engine_type="BEV", is_new=True,
+                    annual_mileage=annual_mileage, period_years=period, road_split=road_split,
+                    city_kwh=bev_p["city_kwh"], highway_kwh=bev_p["hwy_kwh"],
+                    battery_cap=bev_p["bat"],
+                    pv_kwp=pv_kwp, bess_kwh=bess_kwh,
+                    has_home_charger=has_garage,
+                    has_dynamic_tariff=has_garage and has_pv,
+                    use_tax=False,
+                )
+                r_bev_adj = dict(r_bev)
+                r_bev_adj["tco_net"] = r_bev["tco_net"] - car_value
+                r_bev_adj["monthly"] = r_bev_adj["tco_net"] / (period * 12)
+                results["bev"] = {"name": bev_name, "price": bev_p["price"], **r_bev_adj}
+
+        if _offer_hyb:
+            # --- Scenariusz "ZMIEŃ na HYB" ---
+            hyb_name, hyb_p = auto_select_preset(HYB_PRESETS_NEW, segment_key)
+            if hyb_p is None:
+                hyb_name, hyb_p = auto_select_preset(HYB_PRESETS_NEW, "C – Kompakt")
+            if hyb_p:
+                hyb_etype = hyb_p.get("hybrid_type", "HEV")
+                hyb_elec = hyb_p.get("elec_pct", 0)
+                r_hyb = calculate_tco_quick(
+                    vehicle_price=hyb_p["price"], engine_type=hyb_etype, is_new=True,
+                    annual_mileage=annual_mileage, period_years=period, road_split=road_split,
+                    fuel_price=fuel_data["pb95"],
+                    city_l=hyb_p.get("city_l", 5.0), highway_l=hyb_p.get("hwy_l", 5.5),
+                    city_kwh=hyb_p.get("city_kwh", 0), highway_kwh=hyb_p.get("hwy_kwh", 0),
+                    battery_cap=hyb_p.get("bat", 0),
+                    pv_kwp=pv_kwp if hyb_etype == "PHEV" else 0,
+                    has_home_charger=has_garage if hyb_etype == "PHEV" else False,
+                    has_dynamic_tariff=(has_garage and has_pv) if hyb_etype == "PHEV" else False,
+                    elec_pct=hyb_elec,
+                    use_tax=False,
+                )
+                r_hyb_adj = dict(r_hyb)
+                r_hyb_adj["tco_net"] = r_hyb["tco_net"] - car_value
+                r_hyb_adj["monthly"] = r_hyb_adj["tco_net"] / (period * 12)
+                results["hyb"] = {"name": hyb_name, "price": hyb_p["price"], **r_hyb_adj}
+
+        if _offer_ice:
+            # --- Scenariusz "ZMIEŃ na ICE" (dla BEV/HEV ownerów) ---
+            ice_name, ice_p = auto_select_preset(ICE_PRESETS_NEW, segment_key)
+            if ice_p is None:
+                ice_name, ice_p = auto_select_preset(ICE_PRESETS_NEW, "C – Kompakt")
+            if ice_p:
+                r_ice = calculate_tco_quick(
+                    vehicle_price=ice_p["price"], engine_type="ICE", is_new=True,
+                    annual_mileage=annual_mileage, period_years=period, road_split=road_split,
+                    fuel_price=fuel_data["pb95"],
+                    city_l=ice_p["city_l"], highway_l=ice_p["hwy_l"],
+                    fuel_type_idx=ice_p.get("fuel", 0),
+                    pb95_price=fuel_data["pb95"] if ice_p.get("fuel", 0) == 2 else 0,
+                    use_tax=False,
+                )
+                r_ice_adj = dict(r_ice)
+                r_ice_adj["tco_net"] = r_ice["tco_net"] - car_value
+                r_ice_adj["monthly"] = r_ice_adj["tco_net"] / (period * 12)
+                results["ice"] = {"name": ice_name, "price": ice_p["price"], **r_ice_adj}
+
+        # Zapamiętaj typ napędu obecnego auta w wynikach
+        results["keep_engine_type"] = engine_type
 
     else:
         # --- Szukam auta: porównanie ICE vs HYB vs BEV + alternatywny transport ---
@@ -1833,6 +1865,8 @@ def run_wizard_analysis(wizard_data, fuel_data):
             options["bev"] = results["bev"]["tco_net"]
         if "hyb" in results:
             options["hyb"] = results["hyb"]["tco_net"]
+        if "ice" in results:
+            options["ice"] = results["ice"]["tco_net"]
         if options:
             best_alt_key = min(options, key=options.get)
             best_alt_tco = options[best_alt_key]
@@ -2291,6 +2325,12 @@ def _render_wizard(fuel_data):
                     f"Zaoszczędzisz **{abs(savings):,.0f} zł** w **{period} lat** "
                     f"({abs(savings_mo):,.0f} zł/mies.)."
                 )
+            elif verdict == "ice" and "ice" in results:
+                st.info(
+                    f"### 🔴 ZMIEŃ na {results['ice']['name']}\n\n"
+                    f"Zaoszczędzisz **{abs(savings):,.0f} zł** w **{period} lat** "
+                    f"({abs(savings_mo):,.0f} zł/mies.)."
+                )
             else:
                 st.info(
                     f"### 🤔 Opcje są zbliżone kosztowo\n\n"
@@ -2341,38 +2381,41 @@ def _render_wizard(fuel_data):
             else:
                 st.info("### 🤔 Sprawdź porównanie poniżej")
 
-        # --- Metryki: 2-3 kolumny ---
+        # --- Metryki: dynamiczne kolumny ---
         if has_car:
-            cols = st.columns(3)
+            # Buduj listę alternatyw do wyświetlenia (poza "keep")
+            _alt_display = []
+            _ALT_META = {
+                "bev": ("🟢", "BEV"),
+                "hyb": ("🟠", "Hybryda"),
+                "ice": ("🔴", "Spalinowy"),
+            }
+            for _ak in ("bev", "hyb", "ice"):
+                if _ak in results:
+                    _emoji, _label = _ALT_META[_ak]
+                    _alt_display.append((_ak, _emoji, _label))
+
+            cols = st.columns(1 + len(_alt_display))
             if "keep" in results:
                 with cols[0]:
-                    st.markdown("**🔴 Zachowaj swoje auto**")
+                    _keep_etype = results.get("keep_engine_type", "ICE")
+                    _keep_emoji = {"BEV": "🟢", "HEV": "🟠", "PHEV": "🟠"}.get(_keep_etype, "🔴")
+                    st.markdown(f"**{_keep_emoji} Zachowaj swoje auto**")
                     st.metric(
                         results["keep"]["name"][:30],
                         f'{results["keep"]["monthly"]:,.0f} zł/mies.',
                     )
-            if "bev" in results:
-                with cols[1]:
-                    st.markdown("**🟢 Zmień → BEV**")
-                    _delta_bev = results["bev"]["monthly"] - results.get("keep", {}).get("monthly", 0)
+            for _ci, (_ak, _emoji, _label) in enumerate(_alt_display):
+                with cols[1 + _ci]:
+                    st.markdown(f"**{_emoji} Zmień → {_label}**")
+                    _delta = results[_ak]["monthly"] - results.get("keep", {}).get("monthly", 0)
                     st.metric(
-                        results["bev"]["name"][:30],
-                        f'{results["bev"]["monthly"]:,.0f} zł/mies.',
-                        delta=f"{_delta_bev:+,.0f} zł/mies.",
+                        results[_ak]["name"][:30],
+                        f'{results[_ak]["monthly"]:,.0f} zł/mies.',
+                        delta=f"{_delta:+,.0f} zł/mies.",
                         delta_color="inverse",
                     )
-                    st.caption(f"Cena: {results['bev']['price']:,.0f} zł")
-            if "hyb" in results:
-                with cols[2]:
-                    st.markdown("**🟠 Zmień → Hybryda**")
-                    _delta_hyb = results["hyb"]["monthly"] - results.get("keep", {}).get("monthly", 0)
-                    st.metric(
-                        results["hyb"]["name"][:30],
-                        f'{results["hyb"]["monthly"]:,.0f} zł/mies.',
-                        delta=f"{_delta_hyb:+,.0f} zł/mies.",
-                        delta_color="inverse",
-                    )
-                    st.caption(f"Cena: {results['hyb']['price']:,.0f} zł")
+                    st.caption(f"Cena: {results[_ak]['price']:,.0f} zł")
 
             # --- Rozbicie kosztów (has_car) ---
             with st.expander("📊 Skąd te kwoty? Rozbicie kosztów", expanded=False):
@@ -2382,11 +2425,15 @@ def _render_wizard(fuel_data):
 
                 _scenarios = []
                 if "keep" in results:
-                    _scenarios.append(("🔴 Zachowaj", results["keep"]))
+                    _keep_et = results.get("keep_engine_type", "ICE")
+                    _keep_lbl = {"BEV": "🟢 Zachowaj", "HEV": "🟠 Zachowaj"}.get(_keep_et, "🔴 Zachowaj")
+                    _scenarios.append((_keep_lbl, results["keep"]))
                 if "bev" in results:
                     _scenarios.append(("🟢 BEV", results["bev"]))
                 if "hyb" in results:
                     _scenarios.append(("🟠 Hybryda", results["hyb"]))
+                if "ice" in results and has_car:
+                    _scenarios.append(("🔴 Spalinowy", results["ice"]))
 
                 _cost_rows = [
                     ("Amortyzacja (utrata wartości)", "dep"),
@@ -2569,11 +2616,13 @@ def _render_wizard(fuel_data):
         _chart_values = []
         _chart_colors = []
         if has_car and "keep" in results:
+            _keep_et = results.get("keep_engine_type", "ICE")
+            _keep_clr = {"BEV": "#22c55e", "HEV": "#f59e0b", "PHEV": "#f59e0b"}.get(_keep_et, "#ef4444")
             _chart_names.append(f"Zachowaj\nswoje auto")
             _chart_values.append(results["keep"]["tco_net"])
-            _chart_colors.append("#ef4444")
+            _chart_colors.append(_keep_clr)
         for _key, _color in [("ice", "#ef4444"), ("hyb", "#f59e0b"), ("bev", "#22c55e")]:
-            if _key in results and not (has_car and _key == "ice"):
+            if _key in results:
                 _name_short = results[_key]["name"][:20]
                 _prefix = "Zmień → " if has_car else ""
                 _chart_names.append(f"{_prefix}{_name_short}")
@@ -2620,17 +2669,41 @@ def _render_wizard(fuel_data):
 
         # --- Insights ---
         with st.expander("💡 Co to oznacza?", expanded=True):
-            if has_car and "keep" in results and "bev" in results:
+            if has_car and "keep" in results:
+                _keep_et = results.get("keep_engine_type", "ICE")
                 _keep_energy = results["keep"].get("energy", 0)
-                _bev_energy = results["bev"].get("energy", 0)
-                st.markdown(
-                    f"- **Paliwo** kosztuje Cię ~**{_keep_energy:,.0f} zł/rok**. "
-                    f"Prąd do EV kosztowałby ~**{_bev_energy:,.0f} zł/rok**.\n"
+                _energy_label = "Prąd" if _keep_et == "BEV" else "Paliwo"
+
+                _insights_parts = []
+                # Porównanie energii: keep vs najlepsza alternatywa
+                _best_alt_key = None
+                for _ak in ("bev", "hyb", "ice"):
+                    if _ak in results:
+                        _best_alt_key = _ak
+                        break
+                if _best_alt_key:
+                    _alt_energy = results[_best_alt_key].get("energy", 0)
+                    _alt_elbl = "Prąd" if _best_alt_key == "bev" else "Paliwo"
+                    _insights_parts.append(
+                        f"- **{_energy_label}** kosztuje Cię ~**{_keep_energy:,.0f} zł/rok**. "
+                        f"{_alt_elbl} do {results[_best_alt_key]['name'][:25]} "
+                        f"kosztowałby ~**{_alt_energy:,.0f} zł/rok**."
+                    )
+                else:
+                    _insights_parts.append(
+                        f"- **{_energy_label}** kosztuje Cię ~**{_keep_energy:,.0f} zł/rok**."
+                    )
+
+                _insights_parts.append(
                     f"- W **{period} lat** {'zaoszczędzisz' if savings > 0 else 'wydasz więcej'} "
-                    f"**{abs(savings):,.0f} zł** zmieniając auto.\n"
+                    f"**{abs(savings):,.0f} zł** zmieniając auto."
+                )
+                _insights_parts.append(
                     f"- TCO = cena zakupu + paliwo/prąd + serwis + ubezpieczenie − wartość odsprzedaży."
                 )
-                if not wdata.get("has_garage"):
+                st.markdown("\n".join(_insights_parts))
+
+                if _keep_et != "BEV" and "bev" in results and not wdata.get("has_garage"):
                     st.warning(
                         "Nie masz garażu — ładowanie EV w domu jest trudniejsze. "
                         "Rozważ publiczne ładowarki lub wallbox na parkingu."

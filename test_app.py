@@ -1101,6 +1101,57 @@ class TestAgingCost:
         assert premium["total"] > small["total"]
 
 
+class TestWizardEngineTypeLogic:
+    """Testy: BEV owner nie dostaje 'Zmień na BEV', HEV owner nie dostaje HYB."""
+
+    _FUEL_DATA = {"pb95": 6.50, "on": 6.80, "lpg": 3.30, "e_home": 0.65, "e_pub": 1.40, "e_dc": 2.00}
+
+    def _make_wdata(self, fuel="Benzyna", segment="Kompakt (Corolla, Golf, Octavia)",
+                    car_age=5, car_value=50_000, **extra):
+        d = {
+            "has_car": True, "current_fuel": fuel,
+            "current_segment_label": segment,
+            "car_age": car_age, "car_value": car_value,
+            "monthly_km": 1250, "road_split_label": "50/50 miasto/trasa",
+            "has_garage": True, "has_pv": False,
+        }
+        d.update(extra)
+        return d
+
+    def test_ice_owner_gets_bev_and_hyb(self):
+        """ICE owner: alternatywy = BEV + HYB, nie ICE."""
+        results = app.run_wizard_analysis(self._make_wdata(fuel="Benzyna"), self._FUEL_DATA)
+        assert "bev" in results, "ICE owner powinien dostać BEV"
+        assert "hyb" in results, "ICE owner powinien dostać HYB"
+        assert "ice" not in results, "ICE owner nie powinien dostać ICE"
+
+    def test_bev_owner_gets_ice_and_hyb(self):
+        """BEV owner: alternatywy = ICE + HYB, nie kolejny BEV."""
+        results = app.run_wizard_analysis(self._make_wdata(fuel="Elektryczny"), self._FUEL_DATA)
+        assert "bev" not in results, "BEV owner nie powinien dostać 'Zmień na BEV'"
+        assert "ice" in results, "BEV owner powinien dostać ICE"
+        assert "hyb" in results, "BEV owner powinien dostać HYB"
+        assert results.get("keep_engine_type") == "BEV"
+
+    def test_hev_owner_gets_bev_and_ice(self):
+        """HEV owner: alternatywy = BEV + ICE, nie kolejna hybryda."""
+        results = app.run_wizard_analysis(self._make_wdata(fuel="Hybryda"), self._FUEL_DATA)
+        assert "hyb" not in results, "HEV owner nie powinien dostać 'Zmień na HYB'"
+        assert "bev" in results, "HEV owner powinien dostać BEV"
+        assert "ice" in results, "HEV owner powinien dostać ICE"
+        assert results.get("keep_engine_type") == "HEV"
+
+    def test_bev_verdict_not_bev(self):
+        """BEV owner: verdict nigdy nie powinien być 'bev'."""
+        results = app.run_wizard_analysis(self._make_wdata(fuel="Elektryczny"), self._FUEL_DATA)
+        assert results["verdict"] != "bev", "BEV owner nie powinien dostać verdict=bev"
+
+    def test_hev_verdict_not_hyb(self):
+        """HEV owner: verdict nigdy nie powinien być 'hyb'."""
+        results = app.run_wizard_analysis(self._make_wdata(fuel="Hybryda"), self._FUEL_DATA)
+        assert results["verdict"] != "hyb", "HEV owner nie powinien dostać verdict=hyb"
+
+
 class TestEstimateCarValue:
     """Testy krzywej deprecjacji (weryfikacja z danymi Otomoto 03/2026).
 
