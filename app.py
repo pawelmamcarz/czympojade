@@ -1360,6 +1360,13 @@ ICE_PRESETS_NEW = {
         "Jeep Wrangler Rubicon 392": {"price": 350_000, "city_l": 16.0, "hwy_l": 12.0, "fuel": 0},
         "Dodge Challenger R/T 5.7": {"price": 300_000, "city_l": 16.0, "hwy_l": 11.0, "fuel": 0},
     },
+    "Redneck 🤠": {
+        "Toyota Hilux 2.8 D-4D": {"price": 215_000, "city_l": 10.0, "hwy_l": 8.0, "fuel": 1},
+        "Ford Ranger 3.0 V6 EcoBoost": {"price": 285_000, "city_l": 13.0, "hwy_l": 10.0, "fuel": 0},
+        "Dodge RAM 1500 5.7 HEMI": {"price": 350_000, "city_l": 18.0, "hwy_l": 12.0, "fuel": 0},
+        "Ford F-150 3.5 EcoBoost": {"price": 380_000, "city_l": 16.0, "hwy_l": 11.0, "fuel": 0},
+        "Chevrolet Silverado 6.2 V8": {"price": 400_000, "city_l": 18.0, "hwy_l": 13.0, "fuel": 0},
+    },
 }
 ICE_PRESETS_USED = {
     "A – Mini": {
@@ -1398,6 +1405,12 @@ ICE_PRESETS_USED = {
         "Mercedes S500 W221 2010": {"price": 55_000, "city_l": 16.0, "hwy_l": 11.5, "fuel": 0},
         "Toyota Land Cruiser V8 4.5D 2012": {"price": 180_000, "city_l": 14.0, "hwy_l": 10.0, "fuel": 1},
         "Ford Mustang GT 5.0 V8 2018 LPG": {"price": 130_000, "city_l": 15.0, "hwy_l": 10.0, "fuel": 2},
+    },
+    "Redneck 🤠": {
+        "Toyota Hilux 2.4 D-4D 2019": {"price": 120_000, "city_l": 10.5, "hwy_l": 8.5, "fuel": 1},
+        "Ford Ranger 2.0 EcoBlue 2020": {"price": 130_000, "city_l": 11.0, "hwy_l": 8.5, "fuel": 1},
+        "Dodge RAM 1500 5.7 HEMI 2019 LPG": {"price": 220_000, "city_l": 18.0, "hwy_l": 12.0, "fuel": 2},
+        "Mitsubishi L200 2.4D 2020": {"price": 95_000, "city_l": 9.5, "hwy_l": 7.5, "fuel": 1},
     },
 }
 BEV_PRESETS_NEW = {
@@ -1538,6 +1551,14 @@ HYB_PRESETS_NEW = {
         "Mercedes-AMG GT 63 S E Performance": {"price": 950_000, "city_l": 2.0, "hwy_l": 11.0, "fuel": 0,
                                                 "hybrid_type": "PHEV", "bat": 6.1, "city_kwh": 20.0, "hwy_kwh": 24.0, "elec_pct": 0.10},
     },
+    "Redneck 🤠": {
+        "Ford Ranger PHEV": {"price": 280_000, "city_l": 2.5, "hwy_l": 9.0, "fuel": 1,
+                              "hybrid_type": "PHEV", "bat": 21.5, "city_kwh": 22.0, "hwy_kwh": 26.0, "elec_pct": 0.45},
+        "Toyota Hilux 48V Mild Hybrid": {"price": 225_000, "city_l": 8.5, "hwy_l": 7.0, "fuel": 1,
+                                          "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Ford F-150 PowerBoost Hybrid": {"price": 420_000, "city_l": 10.0, "hwy_l": 9.0, "fuel": 0,
+                                          "hybrid_type": "HEV", "bat": 1.5, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+    },
 }
 
 HYB_PRESETS_USED = {
@@ -1579,6 +1600,12 @@ HYB_PRESETS_USED = {
         "Porsche Panamera 4 E-Hybrid 2020": {"price": 250_000, "city_l": 2.5, "hwy_l": 9.5, "fuel": 0,
                                               "hybrid_type": "PHEV", "bat": 14.1, "city_kwh": 18.0, "hwy_kwh": 22.0, "elec_pct": 0.25},
     },
+    "Redneck 🤠": {
+        "Toyota Hilux Mild Hybrid 2023": {"price": 160_000, "city_l": 9.0, "hwy_l": 7.5, "fuel": 1,
+                                           "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Ford Maverick 2.5 Hybrid 2023": {"price": 130_000, "city_l": 7.0, "hwy_l": 7.5, "fuel": 0,
+                                           "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+    },
 }
 
 CAR_SEGMENTS = ["A – Mini", "B – Małe", "C – Kompakt", "D – Średni", "E – Wyższy"]
@@ -1590,7 +1617,7 @@ _SEG_EMOJI = {
     "B – Małe": "🚗 Małe",
     "C – Kompakt": "🚙 Kompakt",
     "D – Średni": "🚐 Średni",
-    "E – Wyższy": "🏆 Wyższy",
+    "E – Wyższy": "💰 Wyższy",
     "Fun Car 🏎️": "🏎️ Fun Car",
     "Redneck 🤠": "🤠 Redneck",
 }
@@ -1617,7 +1644,7 @@ with col_ice:
         help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
     ) == "Nowy"
     ice_presets_all = ICE_PRESETS_NEW if is_new_ice else ICE_PRESETS_USED
-    _ice_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️"]
+    _ice_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
     _ice_seg_labels = [_SEG_EMOJI[k] for k in _ice_seg_keys]
     _ice_seg_pick = st.radio(
         "Segment ICE", _ice_seg_labels, index=3, key="seg_ice",
@@ -1702,7 +1729,7 @@ with col_hyb:
         help="Nowy = auto z salonu. Używany = z rynku wtórnego.",
     ) == "Nowy"
     hyb_presets_all = HYB_PRESETS_NEW if is_new_hyb else HYB_PRESETS_USED
-    _hyb_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️"]
+    _hyb_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
     _hyb_seg_labels = [_SEG_EMOJI[k] for k in _hyb_seg_keys]
     _hyb_seg_pick = st.radio(
         "Segment Hybryda", _hyb_seg_labels, index=4, key="seg_hyb",
