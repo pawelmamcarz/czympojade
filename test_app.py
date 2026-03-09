@@ -943,7 +943,7 @@ class TestTCOQuickLPG:
 
 class TestVersion22:
     def test_version_22(self):
-        assert app.APP_VERSION == "22.1"
+        assert app.APP_VERSION == "22.2"
 
 
 if __name__ == "__main__":
