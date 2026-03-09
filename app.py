@@ -1473,6 +1473,10 @@ BEV_PRESETS_USED = {
         "Porsche Taycan 4S 2022": {"price": 320_000, "city_kwh": 20.0, "hwy_kwh": 24.0, "bat": 79},
         "BMW iX M60 2023": {"price": 380_000, "city_kwh": 22.0, "hwy_kwh": 26.0, "bat": 105},
     },
+    "Redneck 🤠": {
+        "Chevrolet Silverado EV 2024": {"price": 320_000, "city_kwh": 30.0, "hwy_kwh": 35.0, "bat": 205},
+        "GMC Hummer EV SUV 2023": {"price": 400_000, "city_kwh": 34.0, "hwy_kwh": 43.0, "bat": 173},
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -1770,7 +1774,7 @@ with col_bev:
         help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
     ) == "Nowy"
     bev_presets_all = BEV_PRESETS_NEW if is_new_bev else BEV_PRESETS_USED
-    bev_segment_opts = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️"]
+    bev_segment_opts = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
     bev_segment = st.selectbox(
         "Segment BEV", bev_segment_opts, index=4, key="seg_bev",
         help="A=mini, B=małe, C=kompakt, D=średni/SUV, E=wyższy. "
