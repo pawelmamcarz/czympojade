@@ -46,7 +46,7 @@ except ImportError:
 # KONFIGURACJA STRONY
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Czym pojadę w 2026 — jakie auto mi się opłaca kupić?",
+    page_title="Czym pojadę w 2026 — zmieniać czy kupić nowe? Jakie?",
     page_icon="⚡",
     layout="wide",
 )
@@ -54,7 +54,7 @@ st.set_page_config(
 if _HAS_ANALYTICS:
     sta.start_tracking(save_to_json="analytics.json")
 
-st.title("Czym pojadę w 2026 — jakie auto opłaca mi się kupić?")
+st.title("Czym pojadę w 2026 — zmieniać czy kupić nowe? Jakie?")
 st.caption(
     "Porównanie pełnych kosztów posiadania auta elektrycznego, hybrydowego i spalinowego. "
     "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
