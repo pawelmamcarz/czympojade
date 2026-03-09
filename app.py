@@ -1432,7 +1432,7 @@ BEV_PRESETS_NEW = {
         "Hongqi E-HS9 120 kWh": {"price": 446_000, "city_kwh": 22.0, "hwy_kwh": 32.0, "bat": 112},
     },
     "Fun Car 🏎️": {
-        "Tesla Roadster (2027)": {"price": 850_000, "city_kwh": 15.0, "hwy_kwh": 20.0, "bat": 190},
+        "Tesla Roadster (2027)": {"price": 850_000, "city_kwh": 15.0, "hwy_kwh": 20.0, "bat": 200},
         "Xiaomi SU7 Ultra": {"price": 350_000, "city_kwh": 18.0, "hwy_kwh": 24.0, "bat": 94},
         "MG Cyberster GT": {"price": 280_000, "city_kwh": 18.0, "hwy_kwh": 23.0, "bat": 74},
     },

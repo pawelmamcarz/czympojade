@@ -210,7 +210,7 @@ def _fetch_from_epetrol() -> dict | None:
         return None
     try:
         resp = requests.get(
-            "https://www.e-petrol.pl/notowania/rynkowe/ceny-stacji-paliw",
+            "https://www.e-petrol.pl/notowania/rynek-krajowy/ceny-stacje-paliw",
             timeout=8,
             headers={
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -222,28 +222,40 @@ def _fetch_from_epetrol() -> dict | None:
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
         prices = {}
-        text = soup.get_text()
-        for fuel, key in [("Pb95", "pb95"), ("Pb 95", "pb95"),
-                          ("ON", "on"), ("Diesel", "on"),
-                          ("LPG", "lpg")]:
-            pattern = rf'{fuel}\s*[\s\-\u2013:]*\s*(\d+[,\.]\d{{2}})'
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                prices[key] = float(match.group(1).replace(",", "."))
-        if len(prices) < 2:
-            for row in soup.find_all("tr"):
+        
+        # Strategy 1: Find the table 'Średnie ceny detaliczne paliw w Polsce'
+        # Usually Pb95 is 3rd col, ON 4th, LPG 5th in the first data row
+        table = soup.find("table")
+        if table:
+            for row in table.find_all("tr"):
                 cells = row.find_all(["td", "th"])
-                if len(cells) >= 2:
-                    label = cells[0].get_text(strip=True).lower()
-                    for fuel, key in [("pb95", "pb95"), ("pb 95", "pb95"),
-                                      ("diesel", "on"), (" on", "on"),
-                                      ("lpg", "lpg")]:
-                        if fuel in label:
-                            try:
-                                val = cells[1].get_text(strip=True).replace(",", ".").replace("zl", "").strip()
-                                prices[key] = float(val)
-                            except (ValueError, IndexError):
-                                pass
+                if len(cells) >= 5:
+                    text_all = " ".join([c.get_text(strip=True) for c in cells])
+                    if "Pb95" in text_all or "ON" in text_all:
+                        continue # Header
+                    try:
+                        pb = cells[2].get_text(strip=True).replace(",", ".")
+                        on = cells[3].get_text(strip=True).replace(",", ".")
+                        lpg = cells[4].get_text(strip=True).replace(",", ".")
+                        if "." in pb: prices["pb95"] = float(pb)
+                        if "." in on: prices["on"] = float(on)
+                        if "." in lpg: prices["lpg"] = float(lpg)
+                        if len(prices) >= 3: break
+                    except (ValueError, IndexError):
+                        continue
+
+        if len(prices) < 3:
+            # Strategy 2: Regex on full text
+            text = soup.get_text()
+            for fuel, key in [("Pb95", "pb95"), ("Pb 95", "pb95"),
+                              ("ON", "on"), ("Diesel", "on"),
+                              ("LPG", "lpg")]:
+                if key not in prices:
+                    pattern = rf'{fuel}\s*[\s\-\u2013:]*\s*(\d+[,\.]\d{{2}})'
+                    match = re.search(pattern, text, re.IGNORECASE)
+                    if match:
+                        prices[key] = float(match.group(1).replace(",", "."))
+        
         return prices if prices else None
     except Exception as e:
         logger.warning("e-petrol scrape failed: %s", e)
@@ -365,49 +377,44 @@ def get_fuel_price_history(days: int = 90, conn: sqlite3.Connection | None = Non
 # ---------------------------------------------------------------------------
 
 def _fetch_pse_rdn(date_str: str | None = None) -> dict | None:
-    """Fetches daily RDN spot prices from PSE.pl.
-
-    PSE publishes fixing prices for the Day-Ahead Market (RDN).
+    """Fetches daily RDN (SDAC) prices from PSE.pl API.
+    
     Returns {'rdn_avg': float, 'rdn_min': float, 'rdn_max': float} in PLN/kWh.
     """
     if not HAS_SCRAPING:
         return None
-    target_date = date_str or datetime.now().strftime("%Y%m%d")
+    target_date = date_str or datetime.now().strftime("%Y-%m-%d")
     try:
-        # PSE RDN data endpoint
-        url = (
-            "https://www.pse.pl/dane-systemowe/funkcjonowanie-rb/"
-            "raporty-dobowe-z-rb/podstawowe-wskazniki-cenowe-rb"
-        )
+        # PSE SDAC JSON API
+        # The API might be sensitive to date format or availability
+        url = f"https://api.raporty.pse.pl/api/csdac-pln?$filter=business_date eq '{target_date}'"
         resp = requests.get(url, timeout=10, headers=_HEADERS)
+        
+        # If today not available, try yesterday
+        if resp.status_code != 200 or not resp.json().get("value"):
+            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            url = f"https://api.raporty.pse.pl/api/csdac-pln?$filter=business_date eq '{yesterday}'"
+            resp = requests.get(url, timeout=10, headers=_HEADERS)
+        
         resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        # PSE publishes prices in PLN/MWh in tables
-        prices_mwh = []
-        for row in soup.find_all("tr"):
-            cells = row.find_all("td")
-            if len(cells) >= 2:
-                for cell in cells:
-                    txt = cell.get_text(strip=True).replace(",", ".").replace(" ", "")
-                    try:
-                        val = float(txt)
-                        if 50 < val < 2000:  # reasonable PLN/MWh range
-                            prices_mwh.append(val)
-                    except ValueError:
-                        pass
-
-        if not prices_mwh:
+        data = resp.json()
+        
+        if not data or "value" not in data or not data["value"]:
             return None
 
-        avg_mwh = sum(prices_mwh) / len(prices_mwh)
+        # PSE API changed field name: csdac -> csdac_pln (2025+)
+        price_key = "csdac_pln" if "csdac_pln" in data["value"][0] else "csdac"
+        prices = [float(item[price_key]) for item in data["value"] if price_key in item and item[price_key] is not None]
+        if not prices:
+            return None
+
         return {
-            "rdn_avg": round(avg_mwh / 1000, 4),  # PLN/MWh → PLN/kWh
-            "rdn_min": round(min(prices_mwh) / 1000, 4),
-            "rdn_max": round(max(prices_mwh) / 1000, 4),
+            "rdn_avg": round(sum(prices) / len(prices) / 1000, 4), # PLN/MWh -> PLN/kWh
+            "rdn_min": round(min(prices) / 1000, 4),
+            "rdn_max": round(max(prices) / 1000, 4),
         }
     except Exception as e:
-        logger.warning("PSE scrape failed: %s", e)
+        logger.warning("PSE API fetch failed: %s", e)
         return None
 
 
@@ -578,44 +585,72 @@ def _fetch_otomoto_listings(slug: str, engine_type: str) -> list[dict]:
         resp = requests.get(url, params=params, timeout=12, headers={
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                          "Chrome/120.0.0.0 Safari/537.36",
+                          "Chrome/124.0.0.0 Safari/537.36",
             "Accept-Language": "pl-PL,pl;q=0.9",
+            "Referer": "https://www.otomoto.pl/",
         })
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
         results = []
-        # OtoMoto renders listings as article elements
-        for card in soup.select("article"):
+        # OtoMoto 2025+ uses article[data-id] for listing cards
+        cards = soup.select('article[data-id]')
+        # Fallback: legacy selectors
+        if not cards:
+            cards = soup.select('article[data-testid="listing-ad"]')
+        if not cards:
+            cards = soup.select('div[data-testid="listing-ad"]')
+
+        for card in cards:
             try:
-                # Price
-                price_el = card.select_one("[data-testid='ad-price']")
-                if not price_el:
-                    price_el = card.find("h3")
-                if not price_el:
-                    continue
-                price_text = re.sub(r'[^\d]', '', price_el.get_text())
-                if not price_text:
-                    continue
-                price = int(price_text)
-                if price < 5000 or price > 2_000_000:
+                # --- Price: <h3> element (2025+) or data-testid="ad-price" ---
+                price = None
+                h3 = card.find("h3")
+                if h3:
+                    price_text = re.sub(r'[^\d]', '', h3.get_text())
+                    if price_text:
+                        price = int(price_text)
+                if not price:
+                    price_el = card.select_one('[data-testid="ad-price"]')
+                    if price_el:
+                        price_text = re.sub(r'[^\d]', '', price_el.get_text())
+                        if price_text:
+                            price = int(price_text)
+                if not price or price < 5000 or price > 2_000_000:
                     continue
 
-                # Year + mileage from dd elements or spans
+                # --- Year + mileage: <dl>/<dd> structure (2025+) ---
                 year = None
                 mileage = None
-                for dd in card.find_all(["dd", "span", "li"]):
-                    txt = dd.get_text(strip=True)
-                    # Year: 4-digit number between 2010-2026
-                    if not year:
-                        yr_match = re.search(r'\b(20[12]\d)\b', txt)
-                        if yr_match:
-                            year = int(yr_match.group(1))
-                    # Mileage: number followed by "km"
-                    if not mileage:
-                        km_match = re.search(r'([\d\s]+)\s*km', txt, re.IGNORECASE)
-                        if km_match:
-                            mileage = int(re.sub(r'\s', '', km_match.group(1)))
+
+                # Strategy 1: <dl> with <dt> keys (mileage, year)
+                for dl in card.find_all("dl"):
+                    dts = dl.find_all("dt")
+                    dds = dl.find_all("dd")
+                    for dt, dd in zip(dts, dds):
+                        key = dt.get_text(strip=True).lower()
+                        val = dd.get_text(strip=True)
+                        if key == "year" or key == "rok":
+                            yr_match = re.search(r'(20[12]\d)', val)
+                            if yr_match:
+                                year = int(yr_match.group(1))
+                        elif key == "mileage" or key == "przebieg":
+                            km_match = re.search(r'([\d\s]+)', val)
+                            if km_match:
+                                mileage = int(re.sub(r'\s', '', km_match.group(1)))
+
+                # Strategy 2: Scan <dd>, <li>, <span> elements
+                if not year or not mileage:
+                    for el in card.find_all(["dd", "li", "span"]):
+                        txt = el.get_text(strip=True)
+                        if not year:
+                            yr_match = re.search(r'\b(20[12]\d)\b', txt)
+                            if yr_match:
+                                year = int(yr_match.group(1))
+                        if not mileage and "km" in txt.lower():
+                            km_match = re.search(r'([\d\s]+)\s*km', txt, re.IGNORECASE)
+                            if km_match:
+                                mileage = int(re.sub(r'\s', '', km_match.group(1)))
 
                 if year and price:
                     results.append({
