@@ -213,7 +213,7 @@ LPG_FUEL_PUMP_COST = 700        # Koszt wymiany pompy (400-1000 zł)
 # ---------------------------------------------------------------------------
 # Pro Tier – feature gating
 # ---------------------------------------------------------------------------
-IS_PRO = False  # True = wersja Pro (płatna)
+IS_PRO = True  # True = wersja Pro (dostępna po follow na LinkedIn)
 
 # ---------------------------------------------------------------------------
 # Podlicznik (submetering) – koszt instalacji
@@ -1986,18 +1986,19 @@ def _render_wizard(fuel_data):
             "scenariusze PV + magazyn energii i porównanie floty."
         )
 
-        if IS_PRO:
-            if st.button("📊 Przejdź do pełnej analizy", type="primary", key="wiz_to_pro"):
-                _prefill_from_wizard(wdata)
-                st.session_state["wizard_step"] = 4
-                st.rerun()
-        else:
-            st.info(
-                "🔒 **Pełna analiza dostępna w wersji Pro.** "
-                "Zawiera: HiGHS LP optimizer, Monte Carlo, wpływ temperatury, "
-                "tarcza podatkowa 2026, Mój Prąd 7.0, podlicznik EV.\n\n"
-                "Kontakt: **pawel@mamcarz.com** · +48 535 535 221"
-            )
+        st.markdown(
+            '💼 **Podoba Ci się narzędzie?** Zaobserwuj mnie na LinkedIn — '
+            'tam dzielę się analizami rynku EV, energetyki i finansów.\n\n'
+            '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">'
+            '<img src="https://img.shields.io/badge/Follow-Paweł_Mamcarz-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" alt="Follow on LinkedIn">'
+            '</a>',
+            unsafe_allow_html=True,
+        )
+        st.write("")
+        if st.button("📊 Przejdź do pełnej analizy", type="primary", key="wiz_to_pro"):
+            _prefill_from_wizard(wdata)
+            st.session_state["wizard_step"] = 4
+            st.rerun()
 
         # Nawigacja wstecz
         if st.button("← Zmień odpowiedzi", key="wiz_back_3"):
