@@ -1384,16 +1384,18 @@ def run_wizard_analysis(wizard_data, fuel_data):
 
         # Pobierz spalanie z presetu
         if engine_type == "BEV":
-            keep_name, keep_p = auto_select_preset(BEV_PRESETS_USED, segment_key)
+            _keep_preset_name, keep_p = auto_select_preset(BEV_PRESETS_USED, segment_key)
         elif engine_type == "HEV":
-            keep_name, keep_p = auto_select_preset(HYB_PRESETS_USED, segment_key)
+            _keep_preset_name, keep_p = auto_select_preset(HYB_PRESETS_USED, segment_key)
         else:
-            keep_name, keep_p = auto_select_preset(ICE_PRESETS_USED, segment_key)
+            _keep_preset_name, keep_p = auto_select_preset(ICE_PRESETS_USED, segment_key)
 
         if keep_p is None:
             keep_p = {"city_l": 7.0, "hwy_l": 5.5, "city_kwh": 16.0, "hwy_kwh": 19.0,
                       "bat": 60, "fuel": fuel_type_idx}
-            keep_name = "Twoje auto"
+
+        # Nazwa "keep" to zawsze "Twoje auto" — preset służy tylko do spalania
+        keep_name = "Twoje auto"
 
         if fuel_type_idx == 0:
             fp = fuel_data["pb95"]
@@ -1965,7 +1967,7 @@ def _render_wizard(fuel_data):
             cols = st.columns(3)
             if "keep" in results:
                 with cols[0]:
-                    st.markdown("**🔴 Zachowaj**")
+                    st.markdown("**🔴 Zachowaj swoje auto**")
                     st.metric(
                         results["keep"]["name"][:30],
                         f'{results["keep"]["monthly"]:,.0f} zł/mies.',
@@ -2012,7 +2014,7 @@ def _render_wizard(fuel_data):
         _chart_values = []
         _chart_colors = []
         if has_car and "keep" in results:
-            _chart_names.append(f"Zachowaj\n{results['keep']['name'][:20]}")
+            _chart_names.append(f"Zachowaj\nswoje auto")
             _chart_values.append(results["keep"]["tco_net"])
             _chart_colors.append("#ef4444")
         for _key, _color in [("ice", "#ef4444"), ("hyb", "#f59e0b"), ("bev", "#22c55e")]:
