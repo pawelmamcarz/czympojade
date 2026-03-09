@@ -1742,9 +1742,15 @@ def run_wizard_analysis(wizard_data, fuel_data):
         alt_options = calculate_alt_transport(monthly_km, period, road_key)
         results["alt_transport"] = alt_options
 
-        # Najtańsza opcja samochodowa (monthly) — tylko te w budżecie
+        # Najtańsza opcja samochodowa (monthly) — w budżecie, fallback do over_budget
         car_opts_monthly = {k: results[k]["monthly"] for k in ("ice", "bev", "hyb") if k in results}
-        cheapest_car_monthly = min(car_opts_monthly.values()) if car_opts_monthly else 99999
+        _over_b_monthly = {k: v["monthly"] for k, v in results.get("over_budget", {}).items()}
+        if car_opts_monthly:
+            cheapest_car_monthly = min(car_opts_monthly.values())
+        elif _over_b_monthly:
+            cheapest_car_monthly = min(_over_b_monthly.values())
+        else:
+            cheapest_car_monthly = 99999
 
         # Najtańsza opcja alt transportu (viable)
         viable_alts = [a for a in alt_options if a["viable"]]
