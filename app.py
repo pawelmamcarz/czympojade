@@ -5233,55 +5233,54 @@ else:
             "| **RF** | Random Forest | Las losowy – model predykcyjny (regresja) |"
         )
     
-    # ---------------------------------------------------------------------------
-    # STOPKA
-    # ---------------------------------------------------------------------------
-    st.divider()
-    
-    # Cała stopka jako jeden blok HTML — logo (base64) + badge'e + copyright
-    import base64 as _b64
-    
-    _footer_data = ""
-    if HAS_MARKET_DB:
-        try:
-            _freshness = get_data_freshness()
-            if _freshness:
-                _footer_data = (
-                    f'Dane rynkowe: {_freshness["fuel_date"]} · '
-                    f'Ogłoszenia w bazie: {_freshness["listings_count"]:,}<br>'
-                )
-        except Exception:
-            pass
-    
+# ---------------------------------------------------------------------------
+# STOPKA (zawsze widoczna — zarówno w wizardzie jak i w pełnej analizie)
+# ---------------------------------------------------------------------------
+st.divider()
+
+import base64 as _b64
+
+_footer_data = ""
+if HAS_MARKET_DB:
     try:
-        with open("logo.png", "rb") as _lf:
-            _logo_b64 = _b64.b64encode(_lf.read()).decode()
-        _logo_html = (
-            f'<img src="data:image/png;base64,{_logo_b64}" '
-            'alt="Paweł Mamcarz" '
-            'style="width: 180px; border-radius: 12px; margin-bottom: 10px;">'
-        )
+        _freshness = get_data_freshness()
+        if _freshness:
+            _footer_data = (
+                f'Dane rynkowe: {_freshness["fuel_date"]} · '
+                f'Ogłoszenia w bazie: {_freshness["listings_count"]:,}<br>'
+            )
     except Exception:
-        _logo_html = '<p style="font-size:1.2em;"><strong>Paweł Mamcarz</strong></p>'
-    
-    st.markdown(
-        '<div style="text-align: center; color: #888; font-size: 0.85em; line-height: 1.6; padding: 10px 0;">'
-        f'{_logo_html}<br>'
-        '<a href="https://highs.dev/" target="_blank">'
-        '<img src="https://img.shields.io/badge/Powered%20by-HiGHS-blue?style=flat-square" alt="HiGHS" style="vertical-align: middle;">'
-        '</a> &nbsp; '
-        '<a href="https://streamlit.io/" target="_blank">'
-        '<img src="https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white" alt="Streamlit" style="vertical-align: middle;">'
-        '</a><br><br>'
-        f'{_footer_data}'
-        f'© 2026 <strong>Paweł Mamcarz</strong> · v{APP_VERSION}<br>'
-        'Dane rynkowe 2025/2026, ceny paliw z e-petrol.pl<br>'
-        '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
-        ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
-        ' · +48 535 535 221'
-        '</div>',
-        unsafe_allow_html=True,
+        pass
+
+try:
+    with open("logo.png", "rb") as _lf:
+        _logo_b64 = _b64.b64encode(_lf.read()).decode()
+    _logo_html = (
+        f'<img src="data:image/png;base64,{_logo_b64}" '
+        'alt="Paweł Mamcarz" '
+        'style="width: 180px; border-radius: 12px; margin-bottom: 10px;">'
     )
-    
-    if _HAS_ANALYTICS:
-        sta.stop_tracking()
+except Exception:
+    _logo_html = '<p style="font-size:1.2em;"><strong>Paweł Mamcarz</strong></p>'
+
+st.markdown(
+    '<div style="text-align: center; color: #888; font-size: 0.85em; line-height: 1.6; padding: 10px 0;">'
+    f'{_logo_html}<br>'
+    '<a href="https://highs.dev/" target="_blank">'
+    '<img src="https://img.shields.io/badge/Powered%20by-HiGHS-blue?style=flat-square" alt="HiGHS" style="vertical-align: middle;">'
+    '</a> &nbsp; '
+    '<a href="https://streamlit.io/" target="_blank">'
+    '<img src="https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white" alt="Streamlit" style="vertical-align: middle;">'
+    '</a><br><br>'
+    f'{_footer_data}'
+    f'© 2026 <strong>Paweł Mamcarz</strong> · v{APP_VERSION}<br>'
+    'Dane rynkowe 2025/2026, ceny paliw z e-petrol.pl<br>'
+    '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
+    ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
+    ' · +48 535 535 221'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+if _HAS_ANALYTICS:
+    sta.stop_tracking()
