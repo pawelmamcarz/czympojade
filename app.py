@@ -290,8 +290,8 @@ AGING_REPAIR_BASE = {
     "B – Małe":    1_800,
     "C – Kompakt": 2_500,
     "D – Średni":  3_500,
-    "E – Wyższy":  5_000,
-    "Redneck 🤠":  4_000,
+    "E – Wyższy":  8_000,   # V6/V8 — silnik, zawieszenie pneum., turbo = 20-30k zł za naprawę
+    "Redneck 🤠":  6_000,   # V8 pickup, napęd 4×4, duże opony
 }
 AGING_START_YEAR = 8          # od tego roku życia auta ruszają koszty starzenia
 AGING_MILEAGE_THRESHOLD = 150_000  # km — powyżej dodatkowy mnożnik
