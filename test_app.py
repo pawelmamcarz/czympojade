@@ -849,9 +849,25 @@ class TestProTier:
         """Tarcza cenowa: max średnia = G11 (0.42)."""
         assert app.DYNAMIC_PRICE_CAP == 0.42
 
-    def test_moj_prad_6_max(self):
-        """Mój Prąd 6.0: max dotacja 28 000 zł."""
-        assert app.MOJ_PRAD_6_MAX == 28_000
+    def test_moj_prad_7_max(self):
+        """Mój Prąd 7.0: max dotacja 16 000 zł (net-billing)."""
+        assert app.MOJ_PRAD_7_MAX == 16_000
+
+    def test_moj_prad_7_netmeter(self):
+        """Mój Prąd 7.0: max 8 000 zł (net-metering)."""
+        assert app.MOJ_PRAD_7_NETMETER == 8_000
+
+    def test_moj_prad_7_bess_min(self):
+        """Mój Prąd 7.0: min BESS = 12 kWh."""
+        assert app.MOJ_PRAD_7_BESS_MIN_KWH == 12
+
+    def test_moj_prad_7_cost_limit(self):
+        """Mój Prąd 7.0: max 50% kosztów kwalifikowanych."""
+        assert app.MOJ_PRAD_7_COST_LIMIT_PCT == 0.5
+
+    def test_moj_prad_7_eu_bonus(self):
+        """Mój Prąd 7.0: bonus UE +2 000 zł."""
+        assert app.MOJ_PRAD_7_BONUS_EU == 2_000
 
 
 # ===========================================================================

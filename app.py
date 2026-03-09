@@ -226,9 +226,17 @@ SUBMETER_COST = 2_500  # Koszt instalacji podlicznika + legalizacja
 DYNAMIC_PRICE_CAP = 0.42  # Max średnia miesięczna = taryfa G11
 
 # ---------------------------------------------------------------------------
-# Mój Prąd 6.0 – dotacja PV+BESS
+# Mój Prąd 7.0 – dotacja PV+BESS (Q1/Q2 2026, zastępuje MP6)
+#   Max dotacja: 16 000 zł (net-billing) / 8 000 zł (net-metering)
+#   Magazyn min. 12 kWh + tryb wyspowy, inwerter hybrydowy EPS
+#   Limit 50% kosztów kwalifikowanych
+#   Bonus UE: +2 000 zł (komponenty europejskie)
 # ---------------------------------------------------------------------------
-MOJ_PRAD_6_MAX = 28_000  # Maks. dotacja Mój Prąd 6.0 (PV+BESS)
+MOJ_PRAD_7_MAX = 16_000         # Maks. dotacja MP7 (net-billing)
+MOJ_PRAD_7_NETMETER = 8_000     # Maks. dotacja MP7 (net-metering)
+MOJ_PRAD_7_BONUS_EU = 2_000     # Bonus UE (komponenty europejskie)
+MOJ_PRAD_7_BESS_MIN_KWH = 12    # Min. pojemność magazynu energii
+MOJ_PRAD_7_COST_LIMIT_PCT = 0.5 # Max 50% kosztów kwalifikowanych
 
 # ---------------------------------------------------------------------------
 # SCT – Strefa Czystego Transportu (Warszawa 2026 / Kraków 2026)
@@ -2207,21 +2215,31 @@ if has_dynamic_tariff:
         with _pro_c3:
             if IS_PRO:
                 has_moj_prad = st.checkbox(
-                    "Dotacja Mój Prąd 6.0",
+                    "Dotacja Mój Prąd 7.0",
                     value=False,
-                    help=f"Dotacja do {MOJ_PRAD_6_MAX:,} zł dla systemów PV + magazyn energii (BESS). "
-                         "Wymaga PV > 0 kWp i BESS > 0 kWh.",
+                    help=f"Dotacja do {MOJ_PRAD_7_MAX:,} zł (net-billing) / {MOJ_PRAD_7_NETMETER:,} zł (net-metering). "
+                         f"Wymaga PV + magazyn ≥ {MOJ_PRAD_7_BESS_MIN_KWH} kWh z trybem wyspowym + inwerter hybrydowy EPS. "
+                         f"Max 50% kosztów kwalifikowanych. Bonus UE: +{MOJ_PRAD_7_BONUS_EU:,} zł.",
                 )
+                has_moj_prad_eu_bonus = False
+                if has_moj_prad:
+                    has_moj_prad_eu_bonus = st.checkbox(
+                        "Bonus UE (+2 000 zł)",
+                        value=False,
+                        help="Dodatkowe 2 000 zł za komponenty europejskie.",
+                    )
             else:
-                st.checkbox("🔒 Dotacja Mój Prąd 6.0", value=False, disabled=True,
+                st.checkbox("🔒 Dotacja Mój Prąd 7.0", value=False, disabled=True,
                             help="Funkcja dostępna w wersji Pro")
                 has_moj_prad = False
+                has_moj_prad_eu_bonus = False
         if not IS_PRO:
-            st.caption("🔒 Podlicznik, Tarcza cenowa i Mój Prąd 6.0 — dostępne w wersji **Pro**.")
+            st.caption("🔒 Podlicznik, Tarcza cenowa i Mój Prąd 7.0 — dostępne w wersji **Pro**.")
 else:
     has_submeter = False
     has_price_cap = False
     has_moj_prad = False
+    has_moj_prad_eu_bonus = False
 
 # Ładowanie trasowe – widoczne gdy dużo trasy
 highway_pct = pct_rural_n + pct_highway_n
@@ -3729,8 +3747,13 @@ with opt_tab_a:
                     if include_invest:
                         pv_cost = 0 if has_pv_already else pv * PV_COST_PER_KWP
                         invest = pv_cost + bess * BESS_COST_PER_KWH
-                        if has_moj_prad and pv > 0 and bess > 0:
-                            invest = max(0, invest - MOJ_PRAD_6_MAX)
+                        if has_moj_prad and pv > 0 and bess >= MOJ_PRAD_7_BESS_MIN_KWH:
+                            mp7_max = MOJ_PRAD_7_MAX
+                            if has_moj_prad_eu_bonus:
+                                mp7_max += MOJ_PRAD_7_BONUS_EU
+                            # Limit 50% kosztów kwalifikowanych
+                            mp7_subsidy = min(mp7_max, invest * MOJ_PRAD_7_COST_LIMIT_PCT)
+                            invest = max(0, invest - mp7_subsidy)
                     r["tco"] += invest
                     r["monthly"] = r["tco"] / (period_years * 12)
                     r["per_km"] = r["tco"] / (annual_mileage * period_years)
@@ -3751,6 +3774,22 @@ with opt_tab_a:
             f"TCO: **{best['tco']:,.0f} zł** ({best['per_km']:.2f} zł/km, "
             f"{best['monthly']:,.0f} zł/mies.)"
         )
+
+        # Info o dotacji Mój Prąd 7.0
+        if has_moj_prad and best["BESS"] >= MOJ_PRAD_7_BESS_MIN_KWH and best["PV"] > 0:
+            _mp7_invest = (0 if has_pv_already else best["PV"] * PV_COST_PER_KWP) + best["BESS"] * BESS_COST_PER_KWH
+            _mp7_max = MOJ_PRAD_7_MAX + (MOJ_PRAD_7_BONUS_EU if has_moj_prad_eu_bonus else 0)
+            _mp7_actual = min(_mp7_max, _mp7_invest * MOJ_PRAD_7_COST_LIMIT_PCT)
+            st.info(
+                f"**☀️ Dotacja Mój Prąd 7.0:** **-{_mp7_actual:,.0f} zł** z inwestycji PV+BESS\n\n"
+                f"Max dotacja: {_mp7_max:,.0f} zł (limit 50% kosztów: {_mp7_invest * 0.5:,.0f} zł). "
+                f"Wymaga magazynu ≥ {MOJ_PRAD_7_BESS_MIN_KWH} kWh z trybem wyspowym + inwerter hybrydowy EPS."
+            )
+        elif has_moj_prad and best["BESS"] < MOJ_PRAD_7_BESS_MIN_KWH:
+            st.warning(
+                f"⚠️ Mój Prąd 7.0 wymaga magazynu ≥ **{MOJ_PRAD_7_BESS_MIN_KWH} kWh** z trybem wyspowym. "
+                f"Wybrany BESS: {best['BESS']} kWh — dotacja nie przysługuje."
+            )
 
         in_budget = df_s[df_s["monthly"] <= budget_monthly]
         if len(in_budget) > 0 and in_budget.iloc[0].name != best.name:
