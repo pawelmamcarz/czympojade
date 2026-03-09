@@ -5277,7 +5277,11 @@ st.markdown(
     'Dane rynkowe 2025/2026, ceny paliw z e-petrol.pl<br>'
     '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
     ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
-    ' · +48 535 535 221'
+    ' · +48 535 535 221<br><br>'
+    '<a href="https://buycoffee.to/pawelmamcarz" target="_blank">'
+    '<img src="https://buycoffee.to/btn/buycoffeeto-btn-primary.svg" '
+    'alt="Postaw mi kawę na buycoffee.to" style="height: 40px;">'
+    '</a>'
     '</div>',
     unsafe_allow_html=True,
 )
