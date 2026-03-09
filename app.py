@@ -2013,7 +2013,7 @@ st.subheader("Parametry BEV – bateria i ładowanie")
 col3, col4 = st.columns(2)
 with col3:
     battery_capacity = st.number_input(
-        "Pojemność baterii BEV (kWh)", min_value=20, max_value=120, value=bev_p["bat"], step=5
+        "Pojemność baterii BEV (kWh)", min_value=20, max_value=250, value=bev_p["bat"], step=5
     )
     has_home_charger = st.checkbox("Ładowarka domowa (wallbox AC 11 kW)", value=True)
 with col4:
