@@ -258,6 +258,8 @@ WIZARD_SEGMENT_MAP = {
     "Kompakt (Corolla, Golf, Octavia)": "C – Kompakt",
     "SUV / Rodzinny (RAV4, Tucson, Sportage)": "D – Średni",
     "Premium (BMW 3, Mercedes C, Audi A4)": "E – Wyższy",
+    "Dostawczy mały (Caddy, Berlingo, ProAce City)": "Van – Mały",
+    "Dostawczy do 3.5t (ProAce, Transit, Transporter)": "Van – Duży",
     "Pickup / Terenowe": "Redneck 🤠",
 }
 
@@ -272,6 +274,8 @@ WIZARD_SEGMENT_BASE_PRICE = {
     "Kompakt (Corolla, Golf, Octavia)": 130_000,
     "SUV / Rodzinny (RAV4, Tucson, Sportage)": 170_000,
     "Premium (BMW 3, Mercedes C, Audi A4)": 230_000,
+    "Dostawczy mały (Caddy, Berlingo, ProAce City)": 130_000,
+    "Dostawczy do 3.5t (ProAce, Transit, Transporter)": 200_000,
     "Pickup / Terenowe": 250_000,
 }
 
@@ -292,6 +296,8 @@ AGING_REPAIR_BASE = {
     "C – Kompakt": 2_500,
     "D – Średni":  3_500,
     "E – Wyższy":  8_000,   # V6/V8 — silnik, zawieszenie pneum., turbo = 20-30k zł za naprawę
+    "Van – Mały":  4_000,   # Caddy/Berlingo — eksploatacja firmowa, ciągłe naprawy
+    "Van – Duży":  5_500,   # Transit/ProAce — duże hamulce, zawieszenie, turbo diesel
     "Redneck 🤠":  6_000,   # V8 pickup, napęd 4×4, duże opony
 }
 AGING_START_YEAR = 8          # od tego roku życia auta ruszają koszty starzenia
@@ -2216,6 +2222,20 @@ ICE_PRESETS_NEW = {
         "Jeep Wrangler Rubicon 392": {"price": 350_000, "city_l": 16.0, "hwy_l": 12.0, "fuel": 0},
         "Dodge Challenger R/T 5.7": {"price": 300_000, "city_l": 16.0, "hwy_l": 11.0, "fuel": 0},
     },
+    "Van – Mały": {
+        "Toyota ProAce City Verso 1.5 D-4D": {"price": 135_000, "city_l": 7.0, "hwy_l": 5.5, "fuel": 1},
+        "VW Caddy 2.0 TDI": {"price": 140_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 1},
+        "Citroen Berlingo 1.5 BlueHDi": {"price": 120_000, "city_l": 6.5, "hwy_l": 5.5, "fuel": 1},
+        "Toyota ProAce City Verso 1.2 D-4T": {"price": 125_000, "city_l": 8.0, "hwy_l": 6.5, "fuel": 0},
+        "Renault Kangoo 1.5 dCi": {"price": 115_000, "city_l": 6.8, "hwy_l": 5.5, "fuel": 1},
+    },
+    "Van – Duży": {
+        "Toyota ProAce Verso 2.2 D-4D": {"price": 220_000, "city_l": 9.0, "hwy_l": 7.5, "fuel": 1},
+        "VW Transporter T7 2.0 TDI": {"price": 210_000, "city_l": 9.5, "hwy_l": 7.5, "fuel": 1},
+        "Ford Transit Custom 2.0 EcoBlue": {"price": 180_000, "city_l": 9.0, "hwy_l": 7.0, "fuel": 1},
+        "Renault Trafic 2.0 dCi": {"price": 165_000, "city_l": 8.5, "hwy_l": 7.0, "fuel": 1},
+        "Opel Vivaro 2.0 D": {"price": 170_000, "city_l": 8.5, "hwy_l": 7.0, "fuel": 1},
+    },
     "Redneck 🤠": {
         "Toyota Hilux 2.8 D-4D": {"price": 215_000, "city_l": 10.0, "hwy_l": 8.0, "fuel": 1},
         "Ford Ranger 3.0 V6 EcoBoost": {"price": 285_000, "city_l": 13.0, "hwy_l": 10.0, "fuel": 0},
@@ -2262,6 +2282,20 @@ ICE_PRESETS_USED = {
         "Toyota Land Cruiser V8 4.5D 2012": {"price": 180_000, "city_l": 14.0, "hwy_l": 10.0, "fuel": 1},
         "Ford Mustang GT 5.0 V8 2018 LPG": {"price": 130_000, "city_l": 15.0, "hwy_l": 10.0, "fuel": 2},
     },
+    "Van – Mały": {
+        "VW Caddy 2.0 TDI 2020": {"price": 65_000, "city_l": 7.5, "hwy_l": 6.0, "fuel": 1},
+        "Citroen Berlingo 1.5 BlueHDi 2019": {"price": 45_000, "city_l": 7.0, "hwy_l": 5.5, "fuel": 1},
+        "Renault Kangoo 1.5 dCi 2018": {"price": 35_000, "city_l": 7.0, "hwy_l": 5.5, "fuel": 1},
+        "Peugeot Rifter 1.5 BlueHDi 2019": {"price": 42_000, "city_l": 6.5, "hwy_l": 5.5, "fuel": 1},
+        "Dacia Dokker 1.5 dCi 2019": {"price": 30_000, "city_l": 6.5, "hwy_l": 5.5, "fuel": 1},
+    },
+    "Van – Duży": {
+        "Toyota ProAce 2.0 D-4D 2020": {"price": 95_000, "city_l": 9.5, "hwy_l": 7.5, "fuel": 1},
+        "VW Transporter T6.1 2.0 TDI 2020": {"price": 110_000, "city_l": 10.0, "hwy_l": 8.0, "fuel": 1},
+        "Ford Transit Custom 2.0 2019": {"price": 75_000, "city_l": 9.5, "hwy_l": 7.5, "fuel": 1},
+        "Renault Trafic 2.0 dCi 2019": {"price": 65_000, "city_l": 9.0, "hwy_l": 7.0, "fuel": 1},
+        "Opel Vivaro 2.0 D 2020": {"price": 70_000, "city_l": 9.0, "hwy_l": 7.0, "fuel": 1},
+    },
     "Redneck 🤠": {
         "Toyota Hilux 2.4 D-4D 2019": {"price": 120_000, "city_l": 10.5, "hwy_l": 8.5, "fuel": 1},
         "Ford Ranger 2.0 EcoBlue 2020": {"price": 130_000, "city_l": 11.0, "hwy_l": 8.5, "fuel": 1},
@@ -2305,6 +2339,18 @@ BEV_PRESETS_NEW = {
         "Xiaomi SU7 Ultra": {"price": 350_000, "city_kwh": 18.0, "hwy_kwh": 24.0, "bat": 94},
         "MG Cyberster GT": {"price": 280_000, "city_kwh": 18.0, "hwy_kwh": 23.0, "bat": 74},
     },
+    "Van – Mały": {
+        "Toyota ProAce City Electric 50 kWh": {"price": 185_000, "city_kwh": 16.0, "hwy_kwh": 19.5, "bat": 50},
+        "Citroen e-Berlingo 50 kWh": {"price": 175_000, "city_kwh": 16.5, "hwy_kwh": 20.0, "bat": 50},
+        "Peugeot e-Rifter 50 kWh": {"price": 180_000, "city_kwh": 16.5, "hwy_kwh": 20.0, "bat": 50},
+        "VW Caddy eHybrid (PHEV)": {"price": 170_000, "city_kwh": 15.5, "hwy_kwh": 18.5, "bat": 13},
+    },
+    "Van – Duży": {
+        "Toyota ProAce Electric 75 kWh": {"price": 260_000, "city_kwh": 24.0, "hwy_kwh": 28.0, "bat": 75},
+        "VW ID.Buzz Cargo 77 kWh": {"price": 250_000, "city_kwh": 20.0, "hwy_kwh": 24.0, "bat": 77},
+        "Mercedes eVito 60 kWh": {"price": 240_000, "city_kwh": 22.0, "hwy_kwh": 26.0, "bat": 60},
+        "Ford E-Transit Custom 74 kWh": {"price": 230_000, "city_kwh": 22.0, "hwy_kwh": 26.0, "bat": 74},
+    },
     "Redneck 🤠": {
         "Ford F-150 Lightning ER": {"price": 370_000, "city_kwh": 28.0, "hwy_kwh": 35.0, "bat": 131},
         "Chevrolet Silverado EV": {"price": 400_000, "city_kwh": 29.0, "hwy_kwh": 34.0, "bat": 205},
@@ -2342,6 +2388,16 @@ BEV_PRESETS_USED = {
         "Tesla Model S Plaid 2022": {"price": 350_000, "city_kwh": 19.0, "hwy_kwh": 23.0, "bat": 100},
         "Porsche Taycan 4S 2022": {"price": 320_000, "city_kwh": 20.0, "hwy_kwh": 24.0, "bat": 79},
         "BMW iX M60 2023": {"price": 380_000, "city_kwh": 22.0, "hwy_kwh": 26.0, "bat": 105},
+    },
+    "Van – Mały": {
+        "Toyota ProAce City Electric 2023": {"price": 120_000, "city_kwh": 16.5, "hwy_kwh": 20.0, "bat": 50},
+        "Citroen e-Berlingo 2022": {"price": 95_000, "city_kwh": 17.0, "hwy_kwh": 20.5, "bat": 50},
+        "Peugeot e-Rifter 2022": {"price": 100_000, "city_kwh": 17.0, "hwy_kwh": 20.5, "bat": 50},
+    },
+    "Van – Duży": {
+        "Mercedes eVito 2023": {"price": 165_000, "city_kwh": 23.0, "hwy_kwh": 27.0, "bat": 60},
+        "VW ID.Buzz Cargo 2023": {"price": 185_000, "city_kwh": 21.0, "hwy_kwh": 25.0, "bat": 77},
+        "Nissan e-NV200 40 kWh 2021": {"price": 85_000, "city_kwh": 18.0, "hwy_kwh": 22.0, "bat": 40},
     },
     "Redneck 🤠": {
         "Ford F-150 Lightning 2023": {"price": 280_000, "city_kwh": 29.0, "hwy_kwh": 36.0, "bat": 131},
@@ -2409,6 +2465,18 @@ HYB_PRESETS_NEW = {
         "Mercedes-AMG GT 63 S E Performance": {"price": 950_000, "city_l": 2.0, "hwy_l": 11.0, "fuel": 0,
                                                 "hybrid_type": "PHEV", "bat": 6.1, "city_kwh": 20.0, "hwy_kwh": 24.0, "elec_pct": 0.10},
     },
+    "Van – Mały": {
+        "Toyota ProAce City Verso 1.5 Hybrid (plan.)": {"price": 155_000, "city_l": 5.5, "hwy_l": 6.0, "fuel": 1,
+                                                          "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+        "Renault Kangoo E-Tech Hybrid": {"price": 140_000, "city_l": 5.0, "hwy_l": 6.0, "fuel": 1,
+                                           "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+    },
+    "Van – Duży": {
+        "Ford Transit Custom PHEV": {"price": 250_000, "city_l": 3.0, "hwy_l": 8.0, "fuel": 1,
+                                      "hybrid_type": "PHEV", "bat": 11.8, "city_kwh": 20.0, "hwy_kwh": 24.0, "elec_pct": 0.40},
+        "Toyota ProAce Verso PHEV (plan.)": {"price": 270_000, "city_l": 2.5, "hwy_l": 8.0, "fuel": 1,
+                                               "hybrid_type": "PHEV", "bat": 14.0, "city_kwh": 22.0, "hwy_kwh": 26.0, "elec_pct": 0.35},
+    },
     "Redneck 🤠": {
         "Ford Ranger PHEV": {"price": 280_000, "city_l": 2.5, "hwy_l": 9.0, "fuel": 1,
                               "hybrid_type": "PHEV", "bat": 21.5, "city_kwh": 22.0, "hwy_kwh": 26.0, "elec_pct": 0.45},
@@ -2458,6 +2526,14 @@ HYB_PRESETS_USED = {
         "Porsche Panamera 4 E-Hybrid 2020": {"price": 250_000, "city_l": 2.5, "hwy_l": 9.5, "fuel": 0,
                                               "hybrid_type": "PHEV", "bat": 14.1, "city_kwh": 18.0, "hwy_kwh": 22.0, "elec_pct": 0.25},
     },
+    "Van – Mały": {
+        "Renault Kangoo E-Tech 2022": {"price": 85_000, "city_l": 5.5, "hwy_l": 6.5, "fuel": 1,
+                                         "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
+    },
+    "Van – Duży": {
+        "Ford Transit Custom PHEV 2022": {"price": 145_000, "city_l": 3.5, "hwy_l": 8.5, "fuel": 1,
+                                            "hybrid_type": "PHEV", "bat": 11.8, "city_kwh": 20.0, "hwy_kwh": 24.0, "elec_pct": 0.35},
+    },
     "Redneck 🤠": {
         "Toyota Hilux Mild Hybrid 2023": {"price": 160_000, "city_l": 9.0, "hwy_l": 7.5, "fuel": 1,
                                            "hybrid_type": "HEV", "bat": 0, "city_kwh": 0, "hwy_kwh": 0, "elec_pct": 0},
@@ -2466,7 +2542,7 @@ HYB_PRESETS_USED = {
     },
 }
 
-CAR_SEGMENTS = ["A – Mini", "B – Małe", "C – Kompakt", "D – Średni", "E – Wyższy"]
+CAR_SEGMENTS = ["A – Mini", "B – Małe", "C – Kompakt", "D – Średni", "E – Wyższy", "Van – Mały", "Van – Duży"]
 
 # Segment labels z emoji (do radio)
 _SEG_EMOJI = {
@@ -2476,6 +2552,8 @@ _SEG_EMOJI = {
     "C – Kompakt": "🚙 Kompakt",
     "D – Średni": "🚐 Średni",
     "E – Wyższy": "💰 Wyższy",
+    "Van – Mały": "🚐 Van mały",
+    "Van – Duży": "🚛 Van 3.5t",
     "Fun Car 🏎️": "🏎️ Fun Car",
     "Redneck 🤠": "🤠 Redneck",
 }
