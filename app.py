@@ -1431,7 +1431,7 @@ BEV_PRESETS_NEW = {
     "Fun Car 🏎️": {
         "Tesla Roadster (2027)": {"price": 850_000, "city_kwh": 15.0, "hwy_kwh": 20.0, "bat": 200},
         "Xiaomi SU7 Ultra": {"price": 350_000, "city_kwh": 18.0, "hwy_kwh": 24.0, "bat": 94},
-        "MG Cyberster GT": {"price": 280_000, "city_kwh": 18.0, "hwy_kwh": 23.0, "bat": 77},
+        "MG Cyberster GT": {"price": 280_000, "city_kwh": 18.0, "hwy_kwh": 23.0, "bat": 74},
     },
 }
 BEV_PRESETS_USED = {
@@ -1463,7 +1463,7 @@ BEV_PRESETS_USED = {
     "Fun Car 🏎️": {
         "Tesla Model S Plaid 2022": {"price": 350_000, "city_kwh": 19.0, "hwy_kwh": 23.0, "bat": 100},
         "Porsche Taycan 4S 2022": {"price": 320_000, "city_kwh": 20.0, "hwy_kwh": 24.0, "bat": 79},
-        "BMW iX M60 2023": {"price": 380_000, "city_kwh": 22.0, "hwy_kwh": 26.0, "bat": 112},
+        "BMW iX M60 2023": {"price": 380_000, "city_kwh": 22.0, "hwy_kwh": 26.0, "bat": 105},
     },
 }
 
@@ -2013,7 +2013,7 @@ st.subheader("Parametry BEV – bateria i ładowanie")
 col3, col4 = st.columns(2)
 with col3:
     battery_capacity = st.number_input(
-        "Pojemność baterii BEV (kWh)", min_value=20, max_value=250, value=bev_p["bat"], step=5
+        "Pojemność baterii BEV (kWh)", min_value=20, max_value=200, value=bev_p["bat"], step=5
     )
     has_home_charger = st.checkbox("Ładowarka domowa (wallbox AC 11 kW)", value=True)
 with col4:
