@@ -370,6 +370,34 @@ class TestTaxShield:
         shield = app.calculate_tax_shield(200_000, "ICE", 15_000, 4_000, 3, 0.19, "firmowe")
         assert shield["leasing_breakdown"] is None
 
+    # --- Trzy progi podatkowe 2026 ---
+    def test_three_tier_limits(self):
+        """ICE=100k, PHEV=150k, BEV=225k — trzy różne limity."""
+        ice = app.calculate_tax_shield(300_000, "ICE", 10_000, 3_000, 3, 0.19, "firmowe")
+        phev = app.calculate_tax_shield(300_000, "PHEV", 10_000, 3_000, 3, 0.19, "firmowe")
+        bev = app.calculate_tax_shield(300_000, "BEV", 10_000, 3_000, 3, 0.19, "firmowe")
+        assert ice["limit"] == 100_000
+        assert phev["limit"] == 150_000
+        assert bev["limit"] == 225_000
+
+    def test_phev_limit_between_ice_and_bev(self):
+        """PHEV tarcza podatkowa pomiędzy ICE a BEV."""
+        ice = app.calculate_tax_shield(300_000, "ICE", 10_000, 3_000, 3, 0.19, "firmowe")
+        phev = app.calculate_tax_shield(300_000, "PHEV", 10_000, 3_000, 3, 0.19, "firmowe")
+        bev = app.calculate_tax_shield(300_000, "BEV", 10_000, 3_000, 3, 0.19, "firmowe")
+        assert ice["total"] < phev["total"] < bev["total"]
+
+    def test_tax_limit_constants(self):
+        """Stałe limitów podatkowych istnieją i mają poprawne wartości."""
+        assert app.TAX_LIMIT_ICE == 100_000
+        assert app.TAX_LIMIT_PHEV == 150_000
+        assert app.TAX_LIMIT_BEV == 225_000
+
+    def test_hev_gets_ice_limit(self):
+        """HEV (klasyczna hybryda) ma limit ICE, nie PHEV."""
+        hev = app.calculate_tax_shield(200_000, "HEV", 10_000, 3_000, 3, 0.19, "firmowe")
+        assert hev["limit"] == 100_000
+
 
 # ===========================================================================
 # 12. Deprecjacja

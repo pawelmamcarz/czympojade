@@ -970,7 +970,15 @@ def calculate_buyout_tax(buyout_value, resale_value, years_owned, tax_rate=0.19)
 
 # ---------------------------------------------------------------------------
 # TARCZA PODATKOWA 2026
+# Trzy progi limitu zaliczenia w koszty (ustawa od 1.01.2026):
+#   🔴 ICE + HEV:  100 000 zł  (spalinowe i klasyczne hybrydy)
+#   🟡 PHEV:       150 000 zł  (plug-in hybrydy niskoemisyjne)
+#   🟢 BEV + FCEV: 225 000 zł  (elektryczne i wodorowe)
 # ---------------------------------------------------------------------------
+TAX_LIMIT_ICE = 100_000   # ICE, HEV, LPG, diesel
+TAX_LIMIT_PHEV = 150_000  # PHEV (plug-in hybrid)
+TAX_LIMIT_BEV = 225_000   # BEV, FCEV (elektryczne, wodorowe)
+
 
 def calculate_tax_shield(
     vehicle_price: float, engine_type: str,
@@ -979,12 +987,19 @@ def calculate_tax_shield(
     usage_type: str = "firmowe",  # firmowe / mieszane / prywatne
     leasing: dict = None,  # dict from calculate_leasing_params() or None for gotówka
 ) -> dict:
-    """Szczegółowa tarcza podatkowa 2026 z rozbiciem VAT, KUP, leasingu."""
-    # PHEV: limit BEV (225k) od 2025, HEV: limit ICE (100k)
-    if engine_type in ("BEV", "PHEV"):
-        limit = 225_000
-    else:
-        limit = 100_000
+    """Szczegółowa tarcza podatkowa 2026 z rozbiciem VAT, KUP, leasingu.
+
+    Trzy progi limitu zaliczenia w koszty (ustawa od 1.01.2026):
+      🔴 ICE + HEV (spalinowe i klasyczne hybrydy):  100 000 zł
+      🟡 PHEV (plug-in hybrydy niskoemisyjne):       150 000 zł
+      🟢 BEV + FCEV (elektryczne i wodorowe):        225 000 zł
+    """
+    if engine_type == "BEV":
+        limit = TAX_LIMIT_BEV
+    elif engine_type == "PHEV":
+        limit = TAX_LIMIT_PHEV
+    else:  # ICE, HEV, LPG, diesel
+        limit = TAX_LIMIT_ICE
     is_bev = engine_type == "BEV"
     is_phev = engine_type == "PHEV"
 
@@ -2279,23 +2294,31 @@ with col9:
         disabled=not use_tax_shield,
     )
 if use_tax_shield:
-    with st.expander("Limity podatkowe 2026 – ICE vs BEV"):
-        ct1, ct2 = st.columns(2)
+    with st.expander("Limity podatkowe 2026 — trzy progi"):
+        ct1, ct2, ct3 = st.columns(3)
         with ct1:
             st.markdown(
-                "**ICE (spalinowe)**\n"
-                "- Limit leasingu: **100 000 zł** netto\n"
-                "- VAT od paliwa: **50%** (firmowe i mieszane)\n"
-                "- VAT od zakupu: 100% firm. / 50% mieszane (do limitu)\n"
-                "- KUP: 100% firmowe / 75% mieszane"
+                "🔴 **ICE / HEV** (spalinowe + hybrydy)\n"
+                "- Limit: **100 000 zł** netto\n"
+                "- VAT paliwo: **50%** (firm. i miesz.)\n"
+                "- VAT zakup: 100% / 50% (do limitu)\n"
+                "- KUP: 100% firm. / 75% miesz."
             )
         with ct2:
             st.markdown(
-                "**BEV (elektryczne)**\n"
-                "- Limit leasingu: **225 000 zł** netto\n"
-                "- VAT od energii: **100%** (firmowe) / 50% mieszane\n"
-                "- VAT od zakupu: 100% firm. / 50% mieszane (do limitu)\n"
-                "- KUP: 100% firmowe / 75% mieszane"
+                "🟡 **PHEV** (plug-in hybrydy)\n"
+                "- Limit: **150 000 zł** netto\n"
+                "- VAT energia: **100%** firm. / 50% miesz.\n"
+                "- VAT zakup: 100% / 50% (do limitu)\n"
+                "- KUP: 100% firm. / 75% miesz."
+            )
+        with ct3:
+            st.markdown(
+                "🟢 **BEV / FCEV** (elektryczne / wodorowe)\n"
+                "- Limit: **225 000 zł** netto\n"
+                "- VAT energia: **100%** firm. / 50% miesz.\n"
+                "- VAT zakup: 100% / 50% (do limitu)\n"
+                "- KUP: 100% firm. / 75% miesz."
             )
 
 # ---------------------------------------------------------------------------
@@ -2527,7 +2550,7 @@ if st.session_state.get("tco_calculated", False):
             f"TCO z naprawami (rozrząd, hamulce, wtryski) i paliwem wyniesie "
             f"**{tco_ice:,.0f} zł** w {period_years} lata.\n\n"
             f"Za zbliżoną kwotę TCO mógłbyś wziąć w **leasing na firmę** "
-            f"nowe BEV z limitem podatkowym **225 000 zł** (vs 100 000 zł ICE) "
+            f"nowe BEV z limitem podatkowym **225 000 zł** (vs 150k PHEV / 100k ICE) "
             f"i ładować inteligentnie po ujemnych cenach!\n\n"
             f"**TCO BEV: {tco_bev:,.0f} zł** vs **TCO ICE: {tco_ice:,.0f} zł**"
         )
