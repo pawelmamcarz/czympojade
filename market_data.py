@@ -582,13 +582,29 @@ def _fetch_otomoto_listings(slug: str, engine_type: str) -> list[dict]:
         if engine_type == "BEV":
             params["search[filter_enum_fuel_type]"] = "electric"
 
-        resp = requests.get(url, params=params, timeout=12, headers={
+        session = requests.Session()
+        session.headers.update({
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                          "Chrome/124.0.0.0 Safari/537.36",
-            "Accept-Language": "pl-PL,pl;q=0.9",
+                          "Chrome/131.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
             "Referer": "https://www.otomoto.pl/",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-User": "?1",
         })
+        # First visit the homepage to get cookies
+        try:
+            session.get("https://www.otomoto.pl/", timeout=15)
+        except Exception:
+            pass
+        resp = session.get(url, params=params, timeout=30)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 

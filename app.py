@@ -1450,6 +1450,7 @@ BEV_PRESETS_NEW = {
         "MG Cyberster GT": {"price": 280_000, "city_kwh": 18.0, "hwy_kwh": 23.0, "bat": 74},
     },
     "Redneck 🤠": {
+        "Ford F-150 Lightning ER": {"price": 370_000, "city_kwh": 28.0, "hwy_kwh": 35.0, "bat": 131},
         "Chevrolet Silverado EV": {"price": 400_000, "city_kwh": 29.0, "hwy_kwh": 34.0, "bat": 205},
         "GMC Sierra EV Denali": {"price": 450_000, "city_kwh": 27.0, "hwy_kwh": 32.0, "bat": 205},
         "GMC Hummer EV SUV 3X": {"price": 500_000, "city_kwh": 33.0, "hwy_kwh": 42.0, "bat": 173},
@@ -1487,6 +1488,7 @@ BEV_PRESETS_USED = {
         "BMW iX M60 2023": {"price": 380_000, "city_kwh": 22.0, "hwy_kwh": 26.0, "bat": 105},
     },
     "Redneck 🤠": {
+        "Ford F-150 Lightning 2023": {"price": 280_000, "city_kwh": 29.0, "hwy_kwh": 36.0, "bat": 131},
         "Chevrolet Silverado EV 2024": {"price": 320_000, "city_kwh": 30.0, "hwy_kwh": 35.0, "bat": 205},
         "GMC Hummer EV SUV 2023": {"price": 400_000, "city_kwh": 34.0, "hwy_kwh": 43.0, "bat": 173},
     },
