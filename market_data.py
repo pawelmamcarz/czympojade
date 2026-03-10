@@ -402,8 +402,10 @@ def _fetch_pse_rdn(date_str: str | None = None) -> dict | None:
         if not data or "value" not in data or not data["value"]:
             return None
 
-        # PSE API changed field name: csdac -> csdac_pln (2025+)
-        price_key = "csdac_pln" if "csdac_pln" in data["value"][0] else "csdac"
+        # Try to find the price field (csdac_pln or csdac)
+        first_item = data["value"][0]
+        price_key = "csdac_pln" if "csdac_pln" in first_item else "csdac"
+        
         prices = [float(item[price_key]) for item in data["value"] if price_key in item and item[price_key] is not None]
         if not prices:
             return None
@@ -617,67 +619,56 @@ def _fetch_otomoto_listings(slug: str, engine_type: str) -> list[dict]:
         if not cards:
             cards = soup.select('div[data-testid="listing-ad"]')
 
-        for card in cards:
+        # Iterujący po artykułach
+        for card in soup.find_all("article"):
             try:
-                # --- Price: <h3> element (2025+) or data-testid="ad-price" ---
+                card_text = card.get_text(strip=True, separator=" ")
+                # logger.debug("OtoMoto card text: %s", card_text)
+                
+                # --- Cena ---
                 price = None
+                # Szukamy h3 or data-testid="ad-price" or pattern "[\d\s]+PLN"
                 h3 = card.find("h3")
                 if h3:
-                    price_text = re.sub(r'[^\d]', '', h3.get_text())
-                    if price_text:
-                        price = int(price_text)
+                    p_txt = re.sub(r'[^\d]', '', h3.get_text())
+                    if p_txt: price = int(p_txt)
+                
                 if not price:
-                    price_el = card.select_one('[data-testid="ad-price"]')
-                    if price_el:
-                        price_text = re.sub(r'[^\d]', '', price_el.get_text())
-                        if price_text:
-                            price = int(price_text)
-                if not price or price < 5000 or price > 2_000_000:
+                    p_match = re.search(r'([\d\s]{4,10})\s*PLN', card_text)
+                    if p_match:
+                        p_txt = re.sub(r'\s', '', p_match.group(1))
+                        if p_txt: price = int(p_txt)
+                
+                if not price or price < 5000:
                     continue
 
-                # --- Year + mileage: <dl>/<dd> structure (2025+) ---
+                # --- Rok i Przebieg ---
                 year = None
                 mileage = None
+                
+                # Rok: 2010-2029
+                yr_match = re.search(r'\b(20[12]\d)\b', card_text)
+                if yr_match:
+                    year = int(yr_match.group(1))
+                
+                # Przebieg: "10 km", "123 456 km"
+                km_match = re.search(r'([\d\s]+)\s*km', card_text, re.IGNORECASE)
+                if km_match:
+                    km_txt = re.sub(r'\s', '', km_match.group(1))
+                    if km_txt.isdigit():
+                        mileage = int(km_txt)
 
-                # Strategy 1: <dl> with <dt> keys (mileage, year)
-                for dl in card.find_all("dl"):
-                    dts = dl.find_all("dt")
-                    dds = dl.find_all("dd")
-                    for dt, dd in zip(dts, dds):
-                        key = dt.get_text(strip=True).lower()
-                        val = dd.get_text(strip=True)
-                        if key == "year" or key == "rok":
-                            yr_match = re.search(r'(20[12]\d)', val)
-                            if yr_match:
-                                year = int(yr_match.group(1))
-                        elif key == "mileage" or key == "przebieg":
-                            km_match = re.search(r'([\d\s]+)', val)
-                            if km_match:
-                                mileage = int(re.sub(r'\s', '', km_match.group(1)))
-
-                # Strategy 2: Scan <dd>, <li>, <span> elements
-                if not year or not mileage:
-                    for el in card.find_all(["dd", "li", "span"]):
-                        txt = el.get_text(strip=True)
-                        if not year:
-                            yr_match = re.search(r'\b(20[12]\d)\b', txt)
-                            if yr_match:
-                                year = int(yr_match.group(1))
-                        if not mileage and "km" in txt.lower():
-                            km_match = re.search(r'([\d\s]+)\s*km', txt, re.IGNORECASE)
-                            if km_match:
-                                mileage = int(re.sub(r'\s', '', km_match.group(1)))
-
-                if year and price:
+                if year:
                     results.append({
                         "year": year,
-                        "mileage_km": mileage,
+                        "mileage_km": mileage or 0,
                         "price_zl": price,
                     })
-            except (ValueError, AttributeError):
+            except Exception:
                 continue
 
-        return results[:30]  # max 30 per page
+        logger.info("OtoMoto fetch for %s: found %d listings", slug, len(results))
+        return results[:40]
     except Exception as e:
         logger.warning("OtoMoto scrape failed for %s: %s", slug, e)
         return []
