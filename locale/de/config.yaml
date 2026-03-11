@@ -1,0 +1,147 @@
+# Konfiguracja lokalna – Deutschland
+# Alle Werte in EUR und deutschen Einheiten
+
+locale: de
+currency: EUR
+currency_symbol: "€"
+decimal_sep: ","
+thousands_sep: "."
+vat_rate: 0.19
+
+# Preise Energie und Kraftstoff (Fallback wenn kein Live-Daten)
+fuel:
+  gasoline_per_liter: 1.76      # Super E10 [€/l], ADAC April 2025
+  diesel_per_liter: 1.65        # Diesel [€/l]
+  lpg_per_liter: 0.88           # Autogas [€/l]
+  electricity_base: 0.32        # Haushaltstrom Grundtarif [€/kWh], BDEW 2025
+  electricity_night: 0.24       # Nachttarif / Wärmepumpentarif [€/kWh]
+  electricity_dynamic_avg: 0.28 # EPEX Spot + Netzentgelt + Abgaben Ø [€/kWh]
+  electricity_dynamic_cap: 0.35 # Cap dynamischer Tarif (Tibber/aWATTar) [€/kWh]
+  dc_public_per_kwh: 0.79       # Ionity Direct DC [€/kWh]
+  ac_public_per_kwh: 0.49       # EnBW mobility+ AC [€/kWh]
+
+# Netzentgelte – stündliche Verteilung (Beispiel: Bayern, TenneT-Netz)
+# Vereinfacht: Hochtarif 06-22 Uhr, Niedertarif 22-06 Uhr
+grid_dist_by_hour:             # 24 Werte [€/kWh], inkl. Umlagen + Steuern
+  - 0.048  # 00h (Niedertarif)
+  - 0.048  # 01h
+  - 0.048  # 02h
+  - 0.048  # 03h
+  - 0.048  # 04h
+  - 0.048  # 05h
+  - 0.142  # 06h (Hochtarif)
+  - 0.142  # 07h
+  - 0.142  # 08h
+  - 0.142  # 09h
+  - 0.142  # 10h
+  - 0.142  # 11h
+  - 0.142  # 12h
+  - 0.142  # 13h
+  - 0.142  # 14h
+  - 0.142  # 15h
+  - 0.142  # 16h
+  - 0.168  # 17h (Abendspitze)
+  - 0.168  # 18h
+  - 0.168  # 19h
+  - 0.168  # 20h
+  - 0.142  # 21h
+  - 0.048  # 22h (Niedertarif)
+  - 0.048  # 23h
+
+# Ladestationen öffentlich
+charging_providers:
+  primary:
+    name: EnBW mobility+
+    plans:
+      Basis:    {monthly_fee: 0.00,  ac_per_kwh: 0.55, dc_per_kwh: 0.89}
+      Flatrate: {monthly_fee: 17.99, ac_per_kwh: 0.39, dc_per_kwh: 0.59}
+  secondary:
+    name: Ionity
+    plans:
+      Direct:   {monthly_fee: 0.00,  dc_per_kwh: 0.79}
+      Passport: {monthly_fee: 17.99, dc_per_kwh: 0.35}
+      Charge:   {monthly_fee: 7.99,  dc_per_kwh: 0.49}
+
+# Versicherung – Formel: Basis + Rate * Fahrzeugwert
+# Berechnung basiert auf SF-Klasse 10 (Durchschnitt), Region Mittel
+insurance:
+  base_annual: 480     # €/Jahr Haftpflicht Minimum (SF10, Mittelklasse)
+  rate_ice: 0.028      # Vollkasko + Teilkasko Rate
+  rate_hev: 0.030
+  rate_bev: 0.033      # BEV leicht teurer wegen Batterie-Risiko
+
+# Monatliche Temperaturen Deutschland – Gewichtetes Mittel (Berlin/München/Frankfurt)
+temperatures_monthly:  # °C
+  - 1    # Jan
+  - 2    # Feb
+  - 6    # Mär
+  - 10   # Apr
+  - 15   # Mai
+  - 18   # Jun
+  - 20   # Jul
+  - 20   # Aug
+  - 15   # Sep
+  - 10   # Okt
+  - 5    # Nov
+  - 2    # Dez
+
+# Förderungen und Steuervergünstigungen
+subsidies:
+  bev_purchase_subsidy: 0          # BAFA Umweltbonus eingestellt (Dez. 2023)
+  wallbox_grant: 0                 # KfW 440 ausgelaufen; ggf. Länderprogramme
+  pv_grant_max: 0                  # Keine bundesweite PV-Förderung für Privatpersonen
+  # Dienstwagen-Privileg: BEV 0,25%-Regelung statt 1% (brutto Listenpreis)
+  company_bev_tax_fraction: 0.0025 # 0,25% monatlicher geldwerter Vorteil BEV
+  company_ice_tax_fraction: 0.0100 # 1,00% monatlicher geldwerter Vorteil ICE
+  company_bev_tax_advantage: true
+
+# Kfz-Steuer (Kraftfahrzeugsteuer) – Pkw ab 1.1.2021
+# Grundformel: 2,00 €/100ccm (Benzin) oder 9,50 €/100ccm (Diesel)
+#              + CO₂-Komponente (gestaffelt)
+taxes:
+  registration_fee_fixed: 27       # € (einmalige Zulassungsgebühr)
+  kfz_steuer_bev: 0                # BEV bis 31.12.2030 steuerbefreit
+  kfz_steuer_base_gasoline: 2.00   # €/100ccm (Hubraum-Anteil)
+  kfz_steuer_base_diesel: 9.50     # €/100ccm
+  # CO₂-Staffelung ab 2021 (€/g CO₂ über 95g/km):
+  kfz_co2_brackets:                # (bis_g, euro_je_g_ü_95)
+    - [115, 2.00]
+    - [135, 2.20]
+    - [155, 2.50]
+    - [175, 2.90]
+    - [195, 3.40]
+    - [999, 4.00]
+  # Typische Jahressteuer je Segment (Fallback wenn kein CO₂-Wert bekannt)
+  kfz_annual_by_segment:
+    "A – Mini":    95   # € z.B. VW Polo 1.0 (~82g CO₂)
+    "B – Kompakt": 130  # € z.B. VW Golf 1.5 (~115g CO₂)
+    "C – Mittel":  185  # € z.B. VW Passat 2.0 TDI
+    "D – Obere":   260  # € z.B. BMW 5er
+    "Van – Klein": 200
+    "Van – Groß":  420  # Transporter – höheres Hubraum
+
+# LPG (Autogas) – Marktanteil sehr klein in DE
+lpg:
+  benzyna_pct: 0.10
+  consumption_mult: 1.15
+  install_cost_new: 2800    # € (günstiger als PL wegen DE Lohnkosten-Diff.)
+  install_cost_used: 2200
+  maintenance_factor: 1.20
+  annual_service: 180       # €
+
+# PV-Markt Deutschland (EEG 2023)
+pv:
+  cost_per_kwp: 1200        # €/kWp (Preisrückgang DE 2024/2025)
+  feed_in_model: einspeiseverguetung
+  feed_in_rate: 0.082       # €/kWh (EEG 2023: 8,2 ct für Anlagen ≤10 kWp)
+  self_consumption_pct: 0.45
+  # Balkonkraftwerk (bis 800W): steuerbefreit ab 2023
+  balkon_kwp_max: 0.80
+  vat_on_pv: 0.00           # 0% MwSt. auf PV-Anlagen ab 2023 (PV unter 30kWp)
+
+# Wallbox Submetering
+submeter_cost: 800           # € (eichrechtkonformer Zähler)
+
+# Regionsvariante (beeinflusst Netzentgelte und einige Förderungen)
+# Auswahl via UI-Dropdown: Bayern | NRW | Berlin | Nord
+default_region: Bayern

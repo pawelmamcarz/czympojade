@@ -1,0 +1,187 @@
+# UI Strings – Deutschland
+# Format: Schlüssel: "String"
+# Python .format(**kwargs) wird unterstützt, z.B. "Schritt {step}/4"
+
+app:
+  title: "Womit fahre ich 2026 — wechseln oder behalten?"
+  subtitle: >
+    Vollkostenvergleich: Elektroauto, Hybrid und Verbrenner.
+    Aktuelle Kraftstoff- und Strompreise, EPEX-Dynamiktarif,
+    Kfz-Steuer 2026 und Temperatureinfluss auf den Verbrauch.
+  btn_home: "🏠 Start"
+  btn_home_help: "Zurück zum Anfang des Assistenten"
+
+# Wizard
+wizard:
+  progress: "Schritt {step}/4: {label}"
+  step_labels:
+    - "Wer bist du?"
+    - "Dein Auto"
+    - "Was brauchst du?"
+    - "Empfehlung"
+  btn_next: "Weiter →"
+  btn_back: "← Zurück"
+  btn_full_analysis: "📊 Zur detaillierten Analyse"
+  btn_back_to_wizard: "← Zurück zur Empfehlung"
+
+  # Schritt 0 – Profil
+  step0_header: "Wer bist du?"
+  step0_desc: "Beantworte ein paar einfache Fragen und wir zeigen dir, welches Auto sich lohnt."
+  profile_label: "Wähle dein Fahrerprofil"
+
+  # Schritt 1 – Dein Auto
+  step1_header: "Dein Auto"
+  has_car_label: "Hast du aktuell ein Auto?"
+  has_car_yes: "Ja, ich habe ein Auto"
+  has_car_no: "Nein, ich suche mein erstes / tausche"
+  current_segment_label: "Fahrzeugklasse / Typ"
+  current_fuel_label: "Kraftstoff"
+  car_age_label: "Fahrzeugalter (Jahre)"
+  car_value_label: "Geschätzter Fahrzeugwert (€)"
+  start_mileage_label: "Aktueller Kilometerstand (km)"
+  monthly_km_label: "Monatliche Fahrleistung (km)"
+  prefer_new_label: "Neu oder gebraucht?"
+  prefer_new_yes: "Neu (vom Händler)"
+  prefer_new_no: "Gebraucht (Gebrauchtwagenmarkt)"
+  budget_label: "Monatliches Budget für Mobilität (€/Monat)"
+
+  # Schritt 2 – Bedürfnisse
+  step2_header: "Was brauchst du?"
+  driving_style_label: "Fahrstil"
+  parking_label: "Wo parkst du?"
+  parking_opts:
+    - "Garage / Eigenheim mit Strom"
+    - "Parkplatz / Straße"
+  parking_opts_no_car:
+    - "Kein Auto — nicht relevant"
+    - "Garage / Eigenheim mit Strom"
+    - "Parkplatz / Straße"
+  pv_label: "Hast du oder planst du PV-Anlage?"
+  pv_opts:
+    - "Ja"
+    - "Nein"
+    - "In Planung"
+
+  # Schritt 3 – Empfehlung
+  step3_header: "Empfehlung"
+  keep_scenario: "Aktuelles Auto behalten"
+  bev_scenario: "Wechsel zu Elektro (BEV)"
+  hyb_scenario: "Wechsel zu Hybrid (HEV/PHEV)"
+  ice_scenario: "Wechsel zu Verbrenner (ICE)"
+  monthly_cost: "Monatliche Gesamtkosten"
+  tco_total: "Gesamtkosten TCO ({years} Jahre)"
+  verdict_label: "💡 Empfehlung"
+  savings_label: "Ersparnis vs. aktuelle Option"
+
+# Detailanalyse
+analysis:
+  header_profile: "0. Wer bist du?"
+  profile_select_label: "Fahrerprofil wählen"
+  profile_help: "Das Profil beeinflusst die Standardwerte. Du kannst alle Werte manuell anpassen."
+  header_vehicles: "1. Fahrzeuge wählen"
+  header_mileage: "2. Fahrleistung und Strecken"
+  header_energy: "3. Energie und Laden"
+  header_pv: "4. Photovoltaik"
+  header_advanced: "5. Erweiterte Parameter"
+  header_results: "Ergebnisse der Vollkostenanalyse"
+
+  # Fahrzeuge
+  ice_subheader: "Verbrenner (ICE)"
+  hyb_subheader: "Hybrid (HEV/PHEV)"
+  bev_subheader: "Elektroauto (BEV)"
+
+  vehicle_condition: "Zustand {type}"
+  vehicle_condition_new: "Neu"
+  vehicle_condition_used: "Gebraucht"
+  vehicle_segment: "Segment {type}"
+  vehicle_model: "Marke und Modell {type}"
+  vehicle_value: "Fahrzeugwert {type} – brutto (€)"
+  vehicle_financing: "Finanzierungsart {type}"
+  financing_leasing: "Leasing"
+  financing_cash: "Barkauf"
+
+  # Fahrleistung
+  annual_km_label: "Jahresfahrleistung (km)"
+  road_city: "Stadt (%)"
+  road_rural: "Landstraße (%)"
+  road_highway: "Autobahn (%)"
+  road_normalization: "Normiert: Stadt {city:.0%} · Landstraße {rural:.0%} · Autobahn {hwy:.0%}"
+
+  # Energie
+  home_charger_label: "Ich habe Garage / Wallbox"
+  tariff_label: "Haushaltstarif"
+  tariff_g11: "Normaltarif (flat)"
+  tariff_dynamic: "Dynamischer Tarif (Tibber/aWATTar)"
+  public_charging_pct: "Anteil Öffentliches Laden (%)"
+
+  # PV
+  pv_size_label: "PV-Anlagengröße (kWp)"
+  pv_model_label: "PV-Abrechnungsmodell / Tarif"
+  bess_label: "Heimspeicher Kapazität (kWh)"
+
+  # Erweitert
+  budget_label: "Monatliches Budget für das Auto (€)"
+  pv_roof_label: "Ich kann PV-Anlage installieren"
+  pv_already_label: "Ich habe bereits PV (Kosten nicht einrechnen)"
+  garage_label: "Ich habe Garage / Wallbox"
+
+  # Ergebnisse
+  metric_monthly: "Monatliche Kosten"
+  metric_tco: "TCO gesamt"
+  metric_energy_annual: "Jährliche Energiekosten {type}"
+  btn_recalc: "🔄 Neu berechnen"
+  btn_share: "🔗 Ergebnisse teilen"
+  currency_suffix: "€"
+
+# Marktsegmente (Preisschieber)
+segment_thresholds_labels:
+  - "unter 5.000 € (Altfahrzeug)"
+  - "5.000–12.000 € (gebraucht günstig)"
+  - "12.000–20.000 € (gebraucht mittel)"
+  - "20.000–30.000 € (gebraucht gut / Neuwagen Einstieg)"
+  - "30.000–45.000 € (Neuwagen Kompakt)"
+  - "45.000–60.000 € (Neuwagen Mittelklasse)"
+  - "60.000–80.000 € (Neuwagen Obere Mittelklasse)"
+  - "80.000–100.000 € (Neuwagen Oberklasse)"
+  - "100.000–150.000 € (Neuwagen Premium)"
+  - "über 150.000 € (Luxus)"
+
+# Monate
+month_names:
+  - "Jan"
+  - "Feb"
+  - "Mär"
+  - "Apr"
+  - "Mai"
+  - "Jun"
+  - "Jul"
+  - "Aug"
+  - "Sep"
+  - "Okt"
+  - "Nov"
+  - "Dez"
+
+# Wizard-Prefill-Banner
+wizard_banner:
+  title: "✅ Daten aus dem Assistenten wurden übernommen — zum Anzeigen klicken"
+  annual_km: "Jahresfahrleistung"
+  segment: "Fahrzeugsegment"
+  driving_style: "Fahrstil"
+  condition: "Fahrzeugzustand"
+  budget: "Monatliches Budget"
+  pv: "PV-Anlage"
+  garage: "Garage / Wallbox"
+  caption: "Du kannst alle Werte unten anpassen — Änderungen sind unabhängig vom Assistenten."
+  pv_yes: "✅"
+  pv_no: "❌"
+
+# Wizard-Fahrprofile (DE-Entsprechungen)
+driving_styles:
+  - "Stadtverkehr"           # Po mieście
+  - "Gemischt Stadt + Land"  # Mieszanka miasto + trasa
+  - "Lange Strecken"         # Długie trasy
+
+# Fußzeile
+footer:
+  data_source: "Markt- und Steuerdaten 2025/2026. Berechnung auf Basis von EPEX-Spot-Preisen."
+  disclaimer: "Dieser Rechner dient ausschließlich zu Informationszwecken. Keine Finanzberatung."

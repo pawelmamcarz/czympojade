@@ -1,0 +1,121 @@
+# Konfiguracja lokalna – Polska
+# Wszystkie wartości w PLN i jednostkach polskich
+
+locale: pl
+currency: PLN
+currency_symbol: "zł"
+decimal_sep: ","
+thousands_sep: " "
+vat_rate: 0.23
+
+# Ceny energii i paliw (fallback gdy brak live data)
+fuel:
+  gasoline_per_liter: 6.10      # PB95 [zł/l], Orlen 2025/2026
+  diesel_per_liter: 6.30        # ON [zł/l]
+  lpg_per_liter: 3.20           # LPG [zł/l]
+  electricity_g11: 0.78         # Taryfa G11 [zł/kWh] – URE 2026
+  electricity_g12_day: 0.92     # G12 dzień [zł/kWh]
+  electricity_g12_night: 0.55   # G12 noc [zł/kWh]
+  electricity_dynamic_cap: 0.42 # Cap średniej miesięcznej RDN [zł/kWh]
+  dc_public_per_kwh: 3.25       # GreenWay Standard DC [zł/kWh]
+  ac_public_per_kwh: 2.05       # GreenWay Standard AC [zł/kWh]
+
+# Opłaty dystrybucyjne (G14dynamic) – Tauron przykład
+grid_dist_by_hour:             # 24 wartości [zł/kWh]
+  - 0.0118  # 00h
+  - 0.0118  # 01h
+  - 0.0118  # 02h
+  - 0.0118  # 03h
+  - 0.0118  # 04h
+  - 0.0118  # 05h
+  - 0.0470  # 06h
+  - 0.0470  # 07h
+  - 0.0470  # 08h
+  - 0.0470  # 09h
+  - 0.3528  # 10h
+  - 0.3528  # 11h
+  - 0.3528  # 12h
+  - 0.3528  # 13h
+  - 0.0470  # 14h
+  - 0.0470  # 15h
+  - 0.0470  # 16h
+  - 2.3521  # 17h
+  - 2.3521  # 18h
+  - 2.3521  # 19h
+  - 2.3521  # 20h
+  - 0.0470  # 21h
+  - 0.0470  # 22h
+  - 0.0470  # 23h
+
+# Ładowarki publiczne
+charging_providers:
+  primary:
+    name: GreenWay
+    plans:
+      Standard: {monthly_fee: 0.00,  ac_per_kwh: 2.05, dc_per_kwh: 3.25}
+      Plus:     {monthly_fee: 29.99, ac_per_kwh: 1.75, dc_per_kwh: 2.40}
+      Max:      {monthly_fee: 79.99, ac_per_kwh: 1.60, dc_per_kwh: 2.10}
+  secondary:
+    name: Ionity
+    plans:
+      Direct: {monthly_fee: 0.00,  dc_per_kwh: 3.50}
+      Motion: {monthly_fee: 28.50, dc_per_kwh: 2.50}
+      Power:  {monthly_fee: 51.50, dc_per_kwh: 2.05}
+
+# Ubezpieczenie – formuła: base + rate * vehicle_price
+insurance:
+  base_annual: 1200   # Zł/rok (OC minimum)
+  rate_ice: 0.040
+  rate_hev: 0.042
+  rate_bev: 0.050
+
+# Temperatury miesięczne (wpływ na zużycie BEV)
+temperatures_monthly:  # °C
+  - -2   # Sty
+  - -1   # Lut
+  - 3    # Mar
+  - 8    # Kwi
+  - 14   # Maj
+  - 17   # Cze
+  - 19   # Lip
+  - 18   # Sie
+  - 14   # Wrz
+  - 9    # Paź
+  - 4    # Lis
+  - 0    # Gru
+
+# Dofinansowania i ulgi
+subsidies:
+  bev_purchase_subsidy: 0           # Brak BEV dla os. fizycznych (2026)
+  pv_grant_max: 16000               # Mój Prąd 7.0 (zł)
+  pv_grant_netmeter: 8000
+  pv_grant_eu_bonus: 2000
+  pv_grant_bess_min_kwh: 12
+  pv_grant_cost_limit_pct: 0.50
+  company_bev_tax_advantage: true   # Samochód służbowy – 0% PIT od benefitu
+
+# Rejestracja i podatki
+taxes:
+  registration_fee_fixed: 256       # Zł (opłata rejestracyjna)
+  excise_ice_rate: 0.031            # Akcyza ICE (szacunek; zależy od poj. silnika)
+  excise_bev: 0                     # BEV – zwolnione z akcyzy
+  annual_vehicle_tax: 0             # Polska: brak rocznego podatku od auta osobowego
+
+# LPG
+lpg:
+  benzyna_pct: 0.10
+  consumption_mult: 1.15
+  install_cost_new: 4500
+  install_cost_used: 3500
+  maintenance_factor: 1.20
+  annual_service: 500
+
+# Rynek PV
+pv:
+  cost_per_kwp: 4000                # Zł/kWp instalacji
+  feed_in_model: net_billing        # net_billing | net_metering
+  feed_in_rate: 0.52                # Zł/kWh odkup (net-billing 2026)
+  self_consumption_pct: 0.40        # 40% własne zużycie (dom + auto)
+
+# Podlicznik (EV submetering)
+submeter_cost: 2500                 # Zł

@@ -66,11 +66,50 @@ with _col_home:
             st.session_state["wizard_data"] = {}
             st.session_state["wizard_results"] = None
             st.rerun()
-st.caption(
-    "Porównanie pełnych kosztów posiadania auta elektrycznego, hybrydowego i spalinowego. "
-    "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
-    "tarcza podatkowa 2026 i wpływ temperatury na zużycie."
+# ---------------------------------------------------------------------------
+# Nawigacja językowa + roadmap EU
+# ---------------------------------------------------------------------------
+_APP_LANG = getattr(__import__("os"), "environ", {}).get("APP_LANG", "pl")
+
+# Pasek krajów: aktywny + wkrótce
+_EU_ROADMAP_PL = (
+    "🌍 **Dostępne teraz:** &nbsp;"
+    "🇵🇱&nbsp;[Polska](https://czympojade.streamlit.app) &nbsp;·&nbsp; "
+    "🇩🇪&nbsp;[Niemcy](https://womitfahreich2026.streamlit.app)"
+    "&emsp;|&emsp;"
+    "**Wkrótce całe EU:** &nbsp;"
+    "🇫🇷 Francja &nbsp;·&nbsp; 🇳🇱 Holandia &nbsp;·&nbsp; 🇨🇿 Czechy "
+    "&nbsp;·&nbsp; 🇦🇹 Austria &nbsp;·&nbsp; 🇸🇪 Szwecja &nbsp;·&nbsp; ···"
 )
+_EU_ROADMAP_DE = (
+    "🌍 **Verfügbar:** &nbsp;"
+    "🇩🇪&nbsp;[Deutschland](https://womitfahreich2026.streamlit.app) &nbsp;·&nbsp; "
+    "🇵🇱&nbsp;[Polen](https://czympojade.streamlit.app)"
+    "&emsp;|&emsp;"
+    "**Bald für ganz EU:** &nbsp;"
+    "🇫🇷 Frankreich &nbsp;·&nbsp; 🇳🇱 Niederlande &nbsp;·&nbsp; 🇨🇿 Tschechien "
+    "&nbsp;·&nbsp; 🇦🇹 Österreich &nbsp;·&nbsp; 🇸🇪 Schweden &nbsp;·&nbsp; ···"
+)
+
+if _APP_LANG == "pl":
+    st.markdown(
+        f"<div style='font-size:0.82rem; color:#888; margin-bottom:4px'>{_EU_ROADMAP_PL}</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Porównanie pełnych kosztów posiadania (TCO) auta elektrycznego, hybrydowego i spalinowego. "
+        "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
+        "tarcza podatkowa 2026 i wpływ temperatury na zużycie."
+    )
+else:
+    st.markdown(
+        f"<div style='font-size:0.82rem; color:#888; margin-bottom:4px'>{_EU_ROADMAP_DE}</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Vollkostenvergleich (TCO) für Elektro-, Hybrid- und Verbrennerfahrzeuge. "
+        "Aktuelle DE-Marktpreise 2025/2026, SMARD-Strompreise, Kfz-Steuer, Dienstwagen-Besteuerung."
+    )
 with st.expander("📊 Infografika — dlaczego musisz policzyć TCO w 2026?", expanded=False):
     try:
         st.image("infografika.png", use_container_width=True)
@@ -2022,11 +2061,87 @@ if "wizard_step" not in st.session_state:
 
 
 def _prefill_from_wizard(wdata):
-    """Przekaż dane wizarda do query_params i session_state."""
+    """Przekaż dane wizarda do query_params i session_state.
+
+    Mapa kluczy:
+      wizard wdata               → full-analysis widget key / query_param
+      monthly_km * 12            → qp["km"]
+      car_value                  → qp["v_ice"]
+      driving_style (WIZARD_ROAD_SPLITS) → qp["city"], qp["rural"], qp["hwy"]
+                                           + session_state pct_city/pct_rural/pct_highway
+      current_segment_label (WIZARD_SEGMENT_MAP + _SEG_EMOJI) → session_state seg_ice
+      prefer_new / car_age       → session_state is_new_ice
+      has_garage                 → session_state adv_garage
+      has_pv                     → session_state adv_roof, adv_pv_already
+      budget_monthly             → session_state adv_budget
+    """
+    # ---- (A) query_params — roczny przebieg i wartość auta ----
     annual_km = wdata.get("monthly_km", 1500) * 12
     st.query_params["km"] = str(annual_km)
     if wdata.get("has_car"):
         st.query_params["v_ice"] = str(wdata.get("car_value", 65_000))
+
+    # ---- (B) Profil tras → query_params + session_state sliderów ----
+    _style = wdata.get("driving_style", "Mieszanka miasto + trasa")
+    _splits = WIZARD_ROAD_SPLITS.get(_style, (0.40, 0.35, 0.25))
+    _city_int = int(round(_splits[0] * 100))
+    _rural_int = int(round(_splits[1] * 100))
+    _hwy_int   = int(round(_splits[2] * 100))
+    st.query_params["city"]  = str(_city_int)
+    st.query_params["rural"] = str(_rural_int)
+    st.query_params["hwy"]   = str(_hwy_int)
+    # Resetujemy stare wartości session_state — inaczej Streamlit ignoruje value=
+    for _k in ("pct_city", "pct_rural", "pct_highway"):
+        st.session_state.pop(_k, None)
+    st.session_state["pct_city"]    = _city_int
+    st.session_state["pct_rural"]   = _rural_int
+    st.session_state["pct_highway"] = _hwy_int
+
+    # ---- (C) Segment auta → key seg_ice ----
+    # _SEG_EMOJI jest zdefiniowane za tą funkcją, więc inlineujemy mapowanie.
+    _SEG_EMOJI_INLINE = {
+        "Własne parametry": "🛠️ Własne",
+        "A – Mini":    "🛵 Mini",
+        "B – Małe":    "🚗 Małe",
+        "C – Kompakt": "🚙 Kompakt",
+        "D – Średni":  "🚐 Średni",
+        "E – Wyższy":  "💰 Wyższy",
+        "Van – Mały":  "🚐 Van mały",
+        "Van – Duży":  "🚛 Van 3.5t",
+        "Fun Car 🏎️": "🏎️ Fun Car",
+        "Redneck 🤠":  "🤠 Redneck",
+    }
+    _wiz_seg_label = wdata.get("current_segment_label", "")
+    _seg_key = WIZARD_SEGMENT_MAP.get(_wiz_seg_label, "C – Kompakt")
+    _seg_emoji_label = _SEG_EMOJI_INLINE.get(_seg_key, "🚙 Kompakt")
+    st.session_state.pop("seg_ice", None)
+    st.session_state["seg_ice"] = _seg_emoji_label
+
+    # ---- (D) Nowy / używany → key is_new_ice ----
+    _prefer_new = wdata.get("prefer_new", True)
+    _car_age    = wdata.get("car_age", 0)
+    _is_new     = _prefer_new if not wdata.get("has_car") else (_car_age == 0)
+    st.session_state.pop("is_new_ice", None)
+    st.session_state["is_new_ice"] = "Nowy" if _is_new else "Używany"
+
+    # ---- (E) Garaż / wallbox ----
+    st.session_state.pop("adv_garage", None)
+    st.session_state["adv_garage"] = bool(wdata.get("has_garage", True))
+
+    # ---- (F) PV ----
+    _has_pv = bool(wdata.get("has_pv", True))
+    st.session_state.pop("adv_roof", None)
+    st.session_state.pop("adv_pv_already", None)
+    st.session_state["adv_roof"]       = _has_pv
+    st.session_state["adv_pv_already"] = _has_pv
+
+    # ---- (G) Budżet miesięczny — zaokrąglamy do siatki 250 zł ----
+    _budget_raw = wdata.get("budget_monthly", 3_000)
+    _budget = max(500, min(15_000, int(round(_budget_raw / 250) * 250)))
+    st.session_state.pop("adv_budget", None)
+    st.session_state["adv_budget"] = _budget
+
+    # ---- (Z) Zachowaj surowe dane wizarda (dla banera podsumowania) ----
     st.session_state["_wizard_prefill"] = wdata
 
 
@@ -3206,6 +3321,30 @@ else:
     if st.button("← Wróć do rekomendacji", key="back_to_wizard"):
         st.session_state["wizard_step"] = 3
         st.rerun()
+
+    # ---- Baner: dane przeniesione z kreatora ----
+    _wp = st.session_state.get("_wizard_prefill")
+    if _wp:
+        _wiz_km   = _wp.get("monthly_km", 0) * 12
+        _wiz_seg  = _wp.get("current_segment_label", "")
+        _wiz_sty  = _wp.get("driving_style", "")
+        _wiz_bud  = _wp.get("budget_monthly", 0)
+        _wiz_pv   = "✅" if _wp.get("has_pv") else "❌"
+        _wiz_gar  = "✅" if _wp.get("has_garage") else "❌"
+        _wiz_new  = "Nowe" if (_wp.get("prefer_new", True) if not _wp.get("has_car") else (_wp.get("car_age", 0) == 0)) else "Używane"
+        with st.expander("✅ Dane z kreatora zostały przeniesione — kliknij aby zobaczyć", expanded=False):
+            st.markdown(
+                f"| Parametr | Wartość |\n"
+                f"|---|---|\n"
+                f"| Roczny przebieg | **{_wiz_km:,} km** |\n"
+                f"| Segment auta | **{_wiz_seg}** |\n"
+                f"| Styl jazdy | **{_wiz_sty}** |\n"
+                f"| Stan auta | **{_wiz_new}** |\n"
+                f"| Budżet miesięczny | **{_wiz_bud:,} zł** |\n"
+                f"| PV | {_wiz_pv} | \n"
+                f"| Garaż / wallbox | {_wiz_gar} |"
+            )
+            st.caption("Możesz zmienić dowolną wartość poniżej — zmiany są niezależne od kreatora.")
 
     # KROK 0: Profil kierowcy — Question Zero
     st.header("0. Kim jesteś?")

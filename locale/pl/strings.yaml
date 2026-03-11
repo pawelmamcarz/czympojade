@@ -1,0 +1,181 @@
+# UI Strings – Polska
+# Format: klucz: "string"
+# Obsługuje formatowanie Python .format(**kwargs) np. "Krok {n}/4"
+
+app:
+  title: "Czym pojadę w 2026 — zmieniać czy kupić nowe? Jakie?"
+  subtitle: >
+    Porównanie pełnych kosztów posiadania auta elektrycznego, hybrydowego i spalinowego.
+    Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN,
+    tarcza podatkowa 2026 i wpływ temperatury na zużycie.
+  btn_home: "🏠 Start"
+  btn_home_help: "Wróć do początku wizarda"
+
+# Wizard
+wizard:
+  progress: "Krok {step}/4: {label}"
+  step_labels:
+    - "Kim jesteś?"
+    - "Twoje auto"
+    - "Czego potrzebujesz?"
+    - "Rekomendacja"
+  btn_next: "Dalej →"
+  btn_back: "← Wróć"
+  btn_full_analysis: "📊 Przejdź do pełnej analizy"
+  btn_back_to_wizard: "← Wróć do rekomendacji"
+
+  # Krok 0 – Profil
+  step0_header: "Kim jesteś?"
+  step0_desc: "Odpowiedz na kilka prostych pytań, a pokażemy Ci, jakie auto się opłaca."
+  profile_label: "Wybierz swój profil"
+
+  # Krok 1 – Twoje auto
+  step1_header: "Twoje auto"
+  has_car_label: "Czy masz teraz auto?"
+  has_car_yes: "Tak, mam auto"
+  has_car_no: "Nie, szukam pierwszego / zamieniam"
+  current_segment_label: "Klasa / typ auta"
+  current_fuel_label: "Paliwo"
+  car_age_label: "Wiek auta (lata)"
+  car_value_label: "Szacunkowa wartość auta (zł)"
+  start_mileage_label: "Aktualny przebieg (km)"
+  monthly_km_label: "Miesięczny przebieg (km)"
+  prefer_new_label: "Nowe czy używane?"
+  prefer_new_yes: "Nowe (z salonu)"
+  prefer_new_no: "Używane (rynek wtórny)"
+  budget_label: "Budżet miesięczny na transport (zł/mies.)"
+
+  # Krok 2 – Potrzeby
+  step2_header: "Czego potrzebujesz?"
+  driving_style_label: "Styl jazdy"
+  parking_label: "Gdzie parkujesz?"
+  parking_opts:
+    - "Garaż / dom z prądem"
+    - "Parking osiedlowy / ulica"
+  parking_opts_no_car:
+    - "Nie mam auta — nie dotyczy"
+    - "Garaż / dom z prądem"
+    - "Parking osiedlowy / ulica"
+  pv_label: "Czy masz lub planujesz panele PV?"
+  pv_opts:
+    - "Tak"
+    - "Nie"
+    - "Planuję"
+
+  # Krok 3 – Rekomendacja
+  step3_header: "Rekomendacja"
+  keep_scenario: "Zachowaj obecne auto"
+  bev_scenario: "Zmień na elektryczne (BEV)"
+  hyb_scenario: "Zmień na hybrydę (HEV/PHEV)"
+  ice_scenario: "Zmień na spalinowe (ICE)"
+  monthly_cost: "Miesięczny koszt całkowity"
+  tco_total: "Łączny TCO ({years} lat)"
+  verdict_label: "💡 Rekomendacja"
+  savings_label: "Oszczędność vs obecna opcja"
+
+# Pełna analiza
+analysis:
+  header_profile: "0. Kim jesteś?"
+  profile_select_label: "Wybierz swój profil kierowcy"
+  profile_help: "Profil wpływa na domyślne wartości parametrów. Możesz zmienić dowolną wartość ręcznie poniżej."
+  header_vehicles: "1. Wybierz pojazdy"
+  header_mileage: "2. Przebieg i trasy"
+  header_energy: "3. Energia i ładowanie"
+  header_pv: "4. Fotowoltaika"
+  header_advanced: "5. Parametry zaawansowane"
+  header_results: "Wyniki analizy kosztów"
+
+  # Pojazdy
+  ice_subheader: "ICE (spalinowe)"
+  hyb_subheader: "Hybryda (HEV/PHEV)"
+  bev_subheader: "BEV (elektryczne)"
+
+  vehicle_condition: "Stan {type}"
+  vehicle_condition_new: "Nowy"
+  vehicle_condition_used: "Używany"
+  vehicle_segment: "Segment {type}"
+  vehicle_model: "Marka i model {type}"
+  vehicle_value: "Wartość auta {type} – brutto (zł)"
+  vehicle_financing: "Forma finansowania {type}"
+  financing_leasing: "Leasing"
+  financing_cash: "Gotówka"
+
+  # Przebieg
+  annual_km_label: "Roczny przebieg (km)"
+  road_city: "Miasto (%)"
+  road_rural: "Krajowa (%)"
+  road_highway: "Autostrada (%)"
+  road_normalization: "Normalizacja: Miasto {city:.0%} · Krajowa {rural:.0%} · Autostrada {hwy:.0%}"
+
+  # Energia
+  home_charger_label: "Mam garaż / wallbox"
+  tariff_label: "Taryfa domowa"
+  tariff_g11: "G11 (flat)"
+  tariff_dynamic: "Pstryk (dynamiczna)"
+  public_charging_pct: "Udział ładowania publicznego (%)"
+
+  # PV
+  pv_size_label: "Moc instalacji PV (kWp)"
+  pv_model_label: "Model rozliczenia PV / taryfa"
+  bess_label: "Pojemność magazynu energii (kWh)"
+
+  # Zaawansowane
+  budget_label: "Budżet miesięczny na auto (zł)"
+  pv_roof_label: "Mogę zamontować panele PV"
+  pv_already_label: "Mam już PV (nie doliczaj kosztu)"
+  garage_label: "Mam garaż / wallbox"
+
+  # Wyniki
+  metric_monthly: "Miesięczny koszt"
+  metric_tco: "TCO łącznie"
+  metric_energy_annual: "Roczny koszt energii {type}"
+  btn_recalc: "🔄 Przelicz"
+  btn_share: "🔗 Udostępnij wyniki"
+  currency_suffix: "zł"
+
+# Segmenty rynkowe (slider)
+segment_thresholds_labels:
+  - "do 20 tys. (stary rupieć)"
+  - "20-35 tys. (używany budżetowy)"
+  - "35-50 tys. (używany średni)"
+  - "50-75 tys. (używany dobry / tani nowy)"
+  - "75-105 tys. (nowy budżetowy)"
+  - "105-145 tys. (nowy kompaktowy)"
+  - "145-185 tys. (nowy średni)"
+  - "185-230 tys. (nowy wyższy średni)"
+  - "230-300 tys. (nowy premium)"
+  - "powyżej 300 tys. (premium+)"
+
+# Miesiące
+month_names:
+  - "Sty"
+  - "Lut"
+  - "Mar"
+  - "Kwi"
+  - "Maj"
+  - "Cze"
+  - "Lip"
+  - "Sie"
+  - "Wrz"
+  - "Paź"
+  - "Lis"
+  - "Gru"
+
+# Baner wizard prefill
+wizard_banner:
+  title: "✅ Dane z kreatora zostały przeniesione — kliknij aby zobaczyć"
+  annual_km: "Roczny przebieg"
+  segment: "Segment auta"
+  driving_style: "Styl jazdy"
+  condition: "Stan auta"
+  budget: "Budżet miesięczny"
+  pv: "PV"
+  garage: "Garaż / wallbox"
+  caption: "Możesz zmienić dowolną wartość poniżej — zmiany są niezależne od kreatora."
+  pv_yes: "✅"
+  pv_no: "❌"
+
+# Stopka
+footer:
+  data_source: "Dane rynkowe i podatkowe 2025/2026. Obliczenia na bazie cen giełdowych RDN."
+  disclaimer: "Kalkulator ma charakter edukacyjny. Nie stanowi doradztwa finansowego."
