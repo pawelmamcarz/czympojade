@@ -76,7 +76,7 @@ _EU_ROADMAP_PL = (
     "🌍 <b>Dostępne teraz:</b> &nbsp;"
     "🇵🇱&nbsp;<a href='https://czympojade.streamlit.app' style='color:#888'>Polska</a>"
     "&nbsp;·&nbsp;"
-    "🇩🇪&nbsp;<span style='color:#aaa' title='Wkrótce'>Niemcy (wkrótce)</span>"
+    "🇩🇪&nbsp;<a href='https://womitfahreich2026.streamlit.app' style='color:#888'>Niemcy</a>"
     "&emsp;|&emsp;"
     "<b>Kolejne kraje EU:</b> &nbsp;"
     "🇫🇷 Francja &nbsp;·&nbsp; 🇳🇱 Holandia &nbsp;·&nbsp; 🇨🇿 Czechy "
@@ -84,7 +84,7 @@ _EU_ROADMAP_PL = (
 )
 _EU_ROADMAP_DE = (
     "🌍 <b>Verfügbar:</b> &nbsp;"
-    "🇩🇪&nbsp;<span style='color:#aaa'>Deutschland (demnächst)</span>"
+    "🇩🇪&nbsp;<a href='https://womitfahreich2026.streamlit.app' style='color:#888'>Deutschland</a>"
     "&nbsp;·&nbsp;"
     "🇵🇱&nbsp;<a href='https://czympojade.streamlit.app' style='color:#888'>Polen</a>"
     "&emsp;|&emsp;"
