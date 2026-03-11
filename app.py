@@ -71,22 +71,24 @@ with _col_home:
 # ---------------------------------------------------------------------------
 _APP_LANG = getattr(__import__("os"), "environ", {}).get("APP_LANG", "pl")
 
-# Pasek krajów: aktywny + wkrótce
+# Pasek krajów: aktywny + wkrótce  (czysty HTML — bez Markdown **bold** ani [link](url))
 _EU_ROADMAP_PL = (
-    "🌍 **Dostępne teraz:** &nbsp;"
-    "🇵🇱&nbsp;[Polska](https://czympojade.streamlit.app) &nbsp;·&nbsp; "
-    "🇩🇪&nbsp;[Niemcy](https://womitfahreich2026.streamlit.app)"
+    "🌍 <b>Dostępne teraz:</b> &nbsp;"
+    "🇵🇱&nbsp;<a href='https://czympojade.streamlit.app' style='color:#888'>Polska</a>"
+    "&nbsp;·&nbsp;"
+    "🇩🇪&nbsp;<span style='color:#aaa' title='Wkrótce'>Niemcy (wkrótce)</span>"
     "&emsp;|&emsp;"
-    "**Wkrótce całe EU:** &nbsp;"
+    "<b>Kolejne kraje EU:</b> &nbsp;"
     "🇫🇷 Francja &nbsp;·&nbsp; 🇳🇱 Holandia &nbsp;·&nbsp; 🇨🇿 Czechy "
     "&nbsp;·&nbsp; 🇦🇹 Austria &nbsp;·&nbsp; 🇸🇪 Szwecja &nbsp;·&nbsp; ···"
 )
 _EU_ROADMAP_DE = (
-    "🌍 **Verfügbar:** &nbsp;"
-    "🇩🇪&nbsp;[Deutschland](https://womitfahreich2026.streamlit.app) &nbsp;·&nbsp; "
-    "🇵🇱&nbsp;[Polen](https://czympojade.streamlit.app)"
+    "🌍 <b>Verfügbar:</b> &nbsp;"
+    "🇩🇪&nbsp;<span style='color:#aaa'>Deutschland (demnächst)</span>"
+    "&nbsp;·&nbsp;"
+    "🇵🇱&nbsp;<a href='https://czympojade.streamlit.app' style='color:#888'>Polen</a>"
     "&emsp;|&emsp;"
-    "**Bald für ganz EU:** &nbsp;"
+    "<b>Bald für ganz EU:</b> &nbsp;"
     "🇫🇷 Frankreich &nbsp;·&nbsp; 🇳🇱 Niederlande &nbsp;·&nbsp; 🇨🇿 Tschechien "
     "&nbsp;·&nbsp; 🇦🇹 Österreich &nbsp;·&nbsp; 🇸🇪 Schweden &nbsp;·&nbsp; ···"
 )
