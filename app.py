@@ -283,50 +283,7 @@ body{background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe 
 </div>
 """, height=300)
 
-    # ── PROFILE CARDS — główne CTA strony ──
-    st.markdown(
-        "<h3 style='text-align:center;margin:4px 0 2px;color:#e2e8f0;'>Zaczynam!</h3>"
-        "<p style='text-align:center;color:#64748b;margin:0 0 16px;font-size:0.9rem;'>"
-        "Kliknij profil, który najlepiej Cię opisuje</p>",
-        unsafe_allow_html=True,
-    )
-
-    # ── TRUST BAR — co uwzględniamy ──
-    with st.expander("🔍 **Jak to działa? Co uwzględniamy w analizie?**", expanded=False):
-        _t1, _t2, _t3 = st.columns(3)
-        with _t1:
-            st.markdown(
-                "**⚡ BEV vs ICE vs HEV**\n"
-                "- Zużycie wg stylu jazdy\n"
-                "- Ceny paliw na żywo (e-petrol)\n"
-                "- Optymalizacja ładowania BEV\n\n"
-                "**📉 Ukryte koszty**\n"
-                "- Amortyzacja per model\n"
-                "- Serwis, ubezpieczenie OC+AC\n"
-                "- Naprawy wg TÜV Report 2026"
-            )
-        with _t2:
-            st.markdown(
-                "**🔋 PV + magazyn energii**\n"
-                "- Profil produkcji PV (PVGIS)\n"
-                "- BESS, taryfa dynamiczna RDN\n"
-                "- Solver LP optymalizuje mix\n\n"
-                "**🏛️ Tarcza podatkowa**\n"
-                "- Amortyzacja BEV 225k / ICE 150k\n"
-                "- Leasing operacyjny/finansowy\n"
-                "- CIT/PIT, odliczenie VAT"
-            )
-        with _t3:
-            st.markdown(
-                "**🚫 Strefy Czystego Transportu**\n"
-                "- Warszawa, Kraków — koszty\n"
-                "- Benzyna 20+ lat, diesel 12+ lat\n"
-                "- BEV/PHEV zawsze za darmo\n\n"
-                "**🌡️ Wpływ temperatury na BEV**\n"
-                "- Profil temperaturowy PL\n"
-                "- Pompa ciepła, precondition\n"
-                "- Realny koszt, nie WLTP"
-            )
+    # ── PROFILE CARDS — główne CTA (profile są renderowane w _render_wizard step 0) ──
 
 else:
     # ── KOMPAKTOWY HEADER dla kroków 1-3+ ──
@@ -2563,6 +2520,43 @@ def _render_wizard(fuel_data):
                         st.session_state["wizard_data"] = wdata
                         st.session_state["wizard_step"] = 1
                         st.rerun()
+
+        # ── TRUST BAR pod profilami ──
+        with st.expander("🔍 **Jak to działa? Co uwzględniamy w analizie?**", expanded=False):
+            _t1, _t2, _t3 = st.columns(3)
+            with _t1:
+                st.markdown(
+                    "**⚡ BEV vs ICE vs HEV**\n"
+                    "- Zużycie wg stylu jazdy\n"
+                    "- Ceny paliw na żywo (e-petrol)\n"
+                    "- Optymalizacja ładowania BEV\n\n"
+                    "**📉 Ukryte koszty**\n"
+                    "- Amortyzacja per model\n"
+                    "- Serwis, ubezpieczenie OC+AC\n"
+                    "- Naprawy wg TÜV Report 2026"
+                )
+            with _t2:
+                st.markdown(
+                    "**🔋 PV + magazyn energii**\n"
+                    "- Profil produkcji PV (PVGIS)\n"
+                    "- BESS, taryfa dynamiczna RDN\n"
+                    "- Solver LP optymalizuje mix\n\n"
+                    "**🏛️ Tarcza podatkowa**\n"
+                    "- Amortyzacja BEV 225k / ICE 150k\n"
+                    "- Leasing operacyjny/finansowy\n"
+                    "- CIT/PIT, odliczenie VAT"
+                )
+            with _t3:
+                st.markdown(
+                    "**🚫 Strefy Czystego Transportu**\n"
+                    "- Warszawa, Kraków — koszty\n"
+                    "- Benzyna 20+ lat, diesel 12+ lat\n"
+                    "- BEV/PHEV zawsze za darmo\n\n"
+                    "**🌡️ Wpływ temperatury na BEV**\n"
+                    "- Profil temperaturowy PL\n"
+                    "- Pompa ciepła, precondition\n"
+                    "- Realny koszt, nie WLTP"
+                )
 
     # ----- KROK 1: Masz auto? -----
     elif step == 1:
@@ -6887,7 +6881,8 @@ st.markdown(
     '</a><br><br>'
     f'{_footer_data}'
     f'© 2026 <strong>Paweł Mamcarz</strong> · v{APP_VERSION}<br>'
-    'Dane rynkowe 2025/2026, ceny paliw z e-petrol.pl<br>'
+    'Dane rynkowe 2025/2026, ceny paliw z <a href="https://e-petrol.pl" target="_blank">e-petrol.pl</a>, '
+    'awaryjność aut z <a href="https://www.tuev-verband.de" target="_blank">TÜV Report 2026</a><br>'
     '<a href="https://www.linkedin.com/in/pawelmamcarz/" target="_blank">LinkedIn</a>'
     ' · <a href="mailto:pawel@mamcarz.com">pawel@mamcarz.com</a>'
     ' · +48 535 535 221<br><br>'
