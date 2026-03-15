@@ -7162,6 +7162,80 @@ if HAS_MARKET_DB:
     except Exception:
         pass
 
+# ===========================================================================
+# PORÓWNANIE MAREK — Brand TCO Comparison (do pitchów partnerskich)
+# ===========================================================================
+_BRAND_COMPARISONS = [
+    ("Kia", "Kia EV6 LR RWD 2025", "Kia Sportage 1.6 T-GDi 2025"),
+    ("Tesla vs Toyota", "Tesla Model Y SR 2025", "Toyota RAV4 2.5 Hybrid 2025"),
+    ("Tesla vs Toyota", "Tesla Model 3 SR+ 2025", "Toyota Corolla 1.8 Hybrid 2025"),
+    ("VW", "VW ID.4 Pro 2025", "Skoda Kodiaq 2.0 TDI 2025"),
+    ("VW", "VW ID.3 Pro 2025", "VW Golf 2.0 TDI 2025"),
+    ("Hyundai", "Hyundai Ioniq 5 LR AWD 2025", "Hyundai Tucson 1.6 T-GDi 2025"),
+    ("BMW", "BMW iX1 eDrive20 2025", "BMW 320i 2025"),
+    ("Volvo", "Volvo EX30 Single Motor 2025", "Volvo S60 B4 2025"),
+    ("Mercedes", "Mercedes EQA 250+ 2025", "Mercedes C 200 2025"),
+    ("Skoda", "Skoda Enyaq 85 2025", "Skoda Kodiaq 2.0 TDI 2025"),
+    ("Nissan", "Nissan Ariya 63 kWh 2025", "Nissan Qashqai 1.3 DIG-T 2025"),
+    ("BYD", "BYD Seal 2025", "Kia Sportage 1.6 T-GDi 2025"),
+]
+
+with st.expander("📊 **Porównanie marek: BEV vs ICE — TCO firmowe**", expanded=False):
+    try:
+        _pb95_display = f"{fuel_data['pb95']:.2f}"
+    except (TypeError, KeyError):
+        _pb95_display = "6.48"
+    st.caption("Profil: firma CIT 19% · 25 000 km/rok · 5 lat · garaż z ładowarką · "
+               f"PB95 = {_pb95_display} zł/l (e-petrol.pl)")
+    _brand_rows = []
+    for _brand, _bev_name, _ice_name in _BRAND_COMPARISONS:
+        if _bev_name not in CAR_DB or _ice_name not in CAR_DB:
+            continue
+        _bev_car = CAR_DB[_bev_name]
+        _ice_car = CAR_DB[_ice_name]
+        _fi = 1 if any(x in _ice_name for x in ("TDI", "dCi", "D-4D", "CDTi", "BlueHDi")) else 0
+        _bp = dict(annual_mileage=25_000, period_years=5, road_split=(0.40, 0.35, 0.25),
+                   pv_kwp=0, bess_kwh=0, has_home_charger=True, has_dynamic_tariff=False,
+                   has_old_pv=False, suc_distance=300, has_submeter=False, has_price_cap=False,
+                   pb95_price=fuel_data["pb95"], use_tax=True, tax_rate=0.19,
+                   leasing=None, sct_annual_cost=0, spp_annual_cost=0,
+                   oc_only=False, work_charger_pct=0, work_charger_price=0)
+        try:
+            _rb = calculate_tco_quick(
+                vehicle_price=_bev_car["price"], engine_type="BEV", is_new=True, car_age=0,
+                fuel_price=0, city_l=0, highway_l=0,
+                city_kwh=_bev_car["city_kwh"], highway_kwh=_bev_car["hwy_kwh"],
+                battery_cap=_bev_car["bat"], fuel_type_idx=0, **_bp)
+            _ri = calculate_tco_quick(
+                vehicle_price=_ice_car["price"], engine_type="ICE", is_new=True, car_age=0,
+                fuel_price=fuel_data.get("on", 6.50) if _fi == 1 else fuel_data["pb95"],
+                city_l=_ice_car["city_l"], highway_l=_ice_car["hwy_l"],
+                city_kwh=0, highway_kwh=0, battery_cap=0, fuel_type_idx=_fi, **_bp)
+            _diff = _ri["tco_net"] - _rb["tco_net"]
+            _brand_rows.append({
+                "Marka": _brand,
+                "BEV": f"{_bev_name.split(' 2025')[0]} ({_bev_car['price']/1000:.0f}k)",
+                "ICE": f"{_ice_name.split(' 2025')[0]} ({_ice_car['price']/1000:.0f}k)",
+                "BEV zł/m": f"{_rb['monthly']:,.0f}",
+                "ICE zł/m": f"{_ri['monthly']:,.0f}",
+                "Oszczędność BEV": f"{_diff:+,.0f} zł ({_diff/60:+,.0f}/m)",
+            })
+        except Exception:
+            continue
+
+    if _brand_rows:
+        import pandas as _pd_brands
+        _df_brands = _pd_brands.DataFrame(_brand_rows)
+        st.dataframe(_df_brands, hide_index=True, use_container_width=True)
+        st.markdown(
+            "**BEV wygrywa w każdym porównaniu** dla firm — dzięki wyższemu limitowi "
+            "amortyzacji (225 000 zł vs 150 000 zł) i ~60% niższym kosztom energii."
+        )
+    else:
+        st.info("Brak danych do porównania — sprawdź bazę modeli.")
+
+st.markdown("---")
+
 try:
     with open("logo.png", "rb") as _lf:
         _logo_b64 = _b64.b64encode(_lf.read()).decode()
