@@ -422,6 +422,34 @@ HEAT_PUMP_ANNUAL_KWH = 4500  # typowa PC w domu 100-140 m², COP ~3.5
 # LPG – dodatkowe koszty dual-fuel
 # Źródła: motoryzacja.interia.pl, taxiskorpion.pl, agplus.pl, dobrymechanik.pl
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# AdBlue — koszt eksploatacyjny dla diesli Euro 6+ (2018+)
+# Źródło: filtry-dpf-fap.pl, cena-paliw.pl (2025/2026)
+# Zużycie: ~1 l/1000km (kompakt) → ~2 l/1000km (SUV/Van)
+# Cena: ~3 zł/l (kanister 5L), ~5 zł/l (stacja)
+# ---------------------------------------------------------------------------
+ADBLUE_PRICE_PER_L = 3.50          # Średnia cena AdBlue zł/l (kanister)
+ADBLUE_L_PER_100KM = {             # Zużycie AdBlue wg segmentu (l/100km)
+    0: 0.08,  # Mini
+    1: 0.10,  # B – Małe
+    2: 0.12,  # C – Kompakt
+    3: 0.15,  # D – Średni / SUV
+    4: 0.15,  # E – Wyższy
+    5: 0.15,  # Van mały
+    6: 0.20,  # Van duży
+    7: 0.12,  # Fun Car
+    8: 0.18,  # Redneck
+}
+ADBLUE_DIESEL_MIN_YEAR = 2018  # De facto obowiązek SCR+AdBlue od ~2017/2018
+
+# ---------------------------------------------------------------------------
+# Przegląd techniczny (SKP) — obowiązkowy co rok od 4. roku życia auta
+# LPG: droższy (dodatkowa inspekcja instalacji gazowej)
+# ---------------------------------------------------------------------------
+SKP_ANNUAL_COST = 99               # Przegląd osobowy (98 zł od 2025 + opłata)
+SKP_LPG_ANNUAL_COST = 162          # Przegląd osobowy + LPG (98 + 63 zł)
+SKP_START_AGE = 4                  # Od 4. roku życia auta (pierwsze 3 lata bez przeglądu)
+
 LPG_BENZYNA_PCT = 0.10          # 10% jazdy na benzynie (start, krótkie dystanse)
 LPG_CONSUMPTION_MULT = 1.15     # 15% wyższe spalanie na LPG vs benzyna
 LPG_INSTALL_COST_NEW = 4_500    # Koszt instalacji LPG (nowe auto)
@@ -657,6 +685,46 @@ SCT_AGE_THRESHOLD_DIESEL = 12  # diesel: 12+ lat → zakaz (= 2026 - 2014)
 SCT_ANNUAL_FEE_OLD_CAR = 3_600  # 300 zł/mies. (objazdy + mandaty + parkuj i jedź)
 # Ładowarka w pracy — domyślna cena za kWh
 WORK_CHARGER_PRICE_DEFAULT = 1.50  # zł/kWh
+
+# ---------------------------------------------------------------------------
+# Ubezpieczenie OC / AC — benchmarki 2025/2026
+# Źródła: rankomat.pl, mfind.pl, Ubea.pl, Porównywarka OC/AC
+# OC: stawka roczna wg segmentu (średni kierowca 30-50 lat, bez szkód)
+# AC: ~4% wartości rynkowej auta; odpada po ~8 latach (niska wartość → nie opłaca się)
+# ---------------------------------------------------------------------------
+OC_ANNUAL_BY_SEG = {
+    0: 520,   # Mini
+    1: 580,   # B – Małe
+    2: 660,   # C – Kompakt
+    3: 750,   # D – Średni / SUV
+    4: 830,   # E – Wyższy
+    5: 900,   # Van – Mały
+    6: 1_200, # Van – Duży
+    7: 700,   # Fun Car
+    8: 850,   # Redneck
+}
+AC_RATE = 0.04              # 4% wartości rynkowej auta
+AC_MAX_AGE = 8              # Powyżej 8 lat większość kierowców rezygnuje z AC
+
+# ---------------------------------------------------------------------------
+# SPP – Strefa Płatnego Parkowania (duże miasta PL)
+# Źródła: zdm.waw.pl, zikit.krakow.pl, zdm.poznan.pl, zdiz.gdansk.pl
+# Stawki 2025/2026 — pierwsza godzina / kolejne. Estymacja roczna:
+# ~220 dni roboczych × ~2h parkowania = ~440h × stawka + abonamenty
+# BEV: zwolniony z opłat parkingowych (Ustawa o elektromobilności, art. 39 ust. 1)
+# ---------------------------------------------------------------------------
+SPP_ANNUAL_COST = {
+    "Brak":     0,
+    "Kraków":   5_300,   # ŚSPP 2025: I strefa 7 zł/h, II strefa 5 zł/h; ~220 dni × 2h × 6 zł śr.
+    "Warszawa": 5_800,   # SPPN 2025: A 9 zł/h, B 6 zł/h, C 4 zł/h; ~220 × 2h × 6.5 zł śr.
+    "Gdańsk":   4_400,   # SPP 2025: A 6 zł/h, B 4 zł/h; ~220 × 2h × 5 zł śr.
+    "Poznań":   4_600,   # SPP 2025: A 7 zł/h, B 4 zł/h; ~220 × 2h × 5.2 zł śr.
+    "Wrocław":  4_800,   # SPP 2025: A 7.70 zł/h, B 5.50 zł/h; ~220 × 2h × 5.5 zł śr.
+    "Łódź":     3_600,   # SPP 2025: A 5 zł/h, B 3 zł/h; ~220 × 2h × 4 zł śr.
+    "Inne miasto": 3_000, # Małe/średnie miasta — niższe stawki
+}
+SPP_RESIDENT_DISCOUNT = 0.05  # Mieszkaniec SPP: ~95% taniej (abonament ~250 zł/rok)
+# BEV: Ustawa o elektromobilności — zwolniony z opłat SPP do 2029
 
 # ---------------------------------------------------------------------------
 # POBIERANIE CEN PALIW Z E-PETROL.PL
@@ -1799,14 +1867,27 @@ def calculate_depreciation(vehicle_price, segment_idx, period_years, engine_type
     return vehicle_price * (1.0 - rv_pct)
 
 
-def estimate_insurance(vehicle_price, engine_type):
-    if engine_type == "BEV":
-        rate = 0.05
-    elif engine_type in ("HEV", "PHEV"):
-        rate = 0.042
-    else:
-        rate = 0.04
-    return 1200 + vehicle_price * rate
+def estimate_insurance(vehicle_price, engine_type, oc_only=False, car_age=0, seg=None):
+    """Ubezpieczenie roczne: OC (obowiązkowe) + opcjonalnie AC (autocasco).
+
+    Args:
+        vehicle_price: wartość rynkowa auta
+        engine_type: "ICE", "HEV", "PHEV", "BEV"
+        oc_only: True = tylko OC (np. starsze auto 8+ lat)
+        car_age: wiek auta — AC automatycznie odpada po AC_MAX_AGE
+        seg: indeks segmentu (0-8), jeśli None — estymacja z ceny
+    Returns:
+        roczny koszt ubezpieczenia (zł)
+    """
+    if seg is None:
+        seg = price_to_segment(vehicle_price)
+    oc = OC_ANNUAL_BY_SEG.get(seg, 660)
+
+    if oc_only or car_age >= AC_MAX_AGE:
+        return oc
+
+    ac = vehicle_price * AC_RATE
+    return oc + ac
 
 
 def auto_select_preset(presets_dict, segment_key, idx=0):
@@ -1844,6 +1925,16 @@ def run_wizard_analysis(wizard_data, fuel_data):
     # SCT — Strefa Czystego Transportu
     sct_city = wizard_data.get("sct_city", "Nie dotyczy")
     sct_applies = sct_city in ("Warszawa", "Kraków")
+    # Ubezpieczenie — OC/AC toggle
+    oc_only_wiz = wizard_data.get("oc_only", False)
+
+    # SPP — Strefa Płatnego Parkowania
+    spp_city = wizard_data.get("spp_city", "Brak")
+    spp_resident = wizard_data.get("spp_resident", False)
+    spp_annual = SPP_ANNUAL_COST.get(spp_city, 0)
+    if spp_resident and spp_annual > 0:
+        spp_annual = int(spp_annual * SPP_RESIDENT_DISCOUNT)  # abonament mieszkańca
+
     # SCT: koszt zależy od wieku auta i paliwa — nowe auta wjeżdżają za darmo
     car_age_wiz = wizard_data.get("car_age", 0)
     fuel_label_wiz = wizard_data.get("current_fuel", "Benzyna")
@@ -1914,6 +2005,9 @@ def run_wizard_analysis(wizard_data, fuel_data):
             sct_annual_cost=sct_annual_ice if engine_type not in ("BEV", "PHEV") else 0,
             work_charger_pct=work_charger_pct if engine_type == "BEV" else 0,
             work_charger_price=work_charger_price,
+            oc_only=oc_only_wiz,
+            car_age=car_age_wiz,
+            spp_annual_cost=spp_annual,
         )
         r_keep = calculate_tco_quick(**keep_kw)
 
@@ -1969,6 +2063,8 @@ def run_wizard_analysis(wizard_data, fuel_data):
                     sct_annual_cost=0,  # BEV zawsze free w SCT
                     work_charger_pct=work_charger_pct,
                     work_charger_price=work_charger_price,
+                    oc_only=False, car_age=0,
+                    spp_annual_cost=spp_annual,  # BEV zwolniony — handle wewnątrz
                 )
                 r_bev_adj = dict(r_bev)
                 r_bev_adj["tco_net"] = r_bev["tco_net"] - car_value
@@ -1996,6 +2092,8 @@ def run_wizard_analysis(wizard_data, fuel_data):
                     elec_pct=hyb_elec,
                     use_tax=False,
                     sct_annual_cost=sct_annual_ice,  # HEV płaci SCT jak ICE
+                    oc_only=False, car_age=0,
+                    spp_annual_cost=spp_annual,
                 )
                 r_hyb_adj = dict(r_hyb)
                 r_hyb_adj["tco_net"] = r_hyb["tco_net"] - car_value
@@ -2017,6 +2115,8 @@ def run_wizard_analysis(wizard_data, fuel_data):
                     pb95_price=fuel_data["pb95"] if ice_p.get("fuel", 0) == 2 else 0,
                     use_tax=False,
                     sct_annual_cost=sct_annual_ice,
+                    oc_only=False, car_age=0,
+                    spp_annual_cost=spp_annual,
                 )
                 r_ice_adj = dict(r_ice)
                 r_ice_adj["tco_net"] = r_ice["tco_net"] - car_value
@@ -2063,6 +2163,7 @@ def run_wizard_analysis(wizard_data, fuel_data):
                 fuel_type_idx=ice_p.get("fuel", 0),
                 pb95_price=fuel_data["pb95"] if ice_p.get("fuel", 0) == 2 else 0,
                 use_tax=False,
+                spp_annual_cost=spp_annual,
             )
             results["ice"] = {"name": ice_name, "price": ice_p["price"], **r_ice}
 
@@ -2079,6 +2180,7 @@ def run_wizard_analysis(wizard_data, fuel_data):
                 has_home_charger=has_garage,
                 has_dynamic_tariff=has_garage and has_pv,
                 use_tax=False,
+                spp_annual_cost=spp_annual,
             )
             results["bev"] = {"name": bev_name, "price": bev_p["price"], **r_bev}
 
@@ -2099,6 +2201,7 @@ def run_wizard_analysis(wizard_data, fuel_data):
                 has_dynamic_tariff=(has_garage and has_pv) if hyb_etype == "PHEV" else False,
                 elec_pct=hyb_p.get("elec_pct", 0),
                 use_tax=False,
+                spp_annual_cost=spp_annual,
             )
             results["hyb"] = {"name": hyb_name, "price": hyb_p["price"], **r_hyb}
 
@@ -2259,6 +2362,9 @@ def calculate_tco_quick(
     sct_annual_cost=0,   # Roczny koszt SCT (Strefa Czystego Transportu)
     work_charger_pct=0,  # % ładowania w pracy (0-1)
     work_charger_price=0,  # Cena kWh ładowarki w pracy (0 = darmowa)
+    oc_only=False,  # Tylko OC (bez AC) — starsze auta / preferencja usera
+    car_age=0,  # Wiek auta (lat) — wpływa na AC, SKP
+    spp_annual_cost=0,  # Roczny koszt SPP (Strefa Płatnego Parkowania)
 ) -> dict:
     """Szybkie obliczenie TCO dla optymalizatora (HiGHS LP wewnątrz dla BEV/PHEV)."""
     seg = price_to_segment(vehicle_price)
@@ -2296,12 +2402,43 @@ def calculate_tco_quick(
                                    suc_distance, annual_mileage,
                                    has_submeter=has_submeter, has_price_cap=has_price_cap)
             fa = ch["total_cost"]
-    et = fa * period_years
+    # AdBlue: tylko diesel (fuel_type_idx=1) — koszt proporcjonalny do przebiegu
+    adblue_cost = 0
+    if fuel_type_idx == 1 and engine_type in ("ICE", "HEV"):
+        _adblue_l = ADBLUE_L_PER_100KM.get(seg, 0.12)
+        adblue_cost = total_km / 100 * _adblue_l * ADBLUE_PRICE_PER_L
+
+    et = fa * period_years + adblue_cost
     mt = calculate_maintenance_cost(seg, total_km, engine_type, is_new,
                                     fuel_type_idx=fuel_type_idx, period_years=period_years)["total"]
-    ins = estimate_insurance(vehicle_price, engine_type) * period_years
+
+    # Ubezpieczenie: OC + AC (AC odpada po AC_MAX_AGE lub oc_only=True)
+    ins = 0
+    for yr in range(1, period_years + 1):
+        _age_yr = car_age + yr
+        _ins_yr = estimate_insurance(vehicle_price, engine_type,
+                                     oc_only=oc_only, car_age=_age_yr, seg=seg)
+        ins += _ins_yr
+
+    # SKP — przegląd techniczny (obowiązkowy od 4. roku życia auta)
+    skp_total = 0
+    for yr in range(1, period_years + 1):
+        _age_yr = car_age + yr
+        if _age_yr >= SKP_START_AGE:
+            if fuel_type_idx == 2:  # LPG
+                skp_total += SKP_LPG_ANNUAL_COST
+            else:
+                skp_total += SKP_ANNUAL_COST
+
+    # SPP — Strefa Płatnego Parkowania (BEV zwolniony z opłat)
+    if engine_type == "BEV":
+        spp_total = 0  # Ustawa o elektromobilności — BEV nie płaci za SPP
+    else:
+        spp_total = spp_annual_cost * period_years
+
     tx_data = calculate_tax_shield(vehicle_price, engine_type, fa,
-                                   estimate_insurance(vehicle_price, engine_type),
+                                   estimate_insurance(vehicle_price, engine_type,
+                                                      oc_only=oc_only, car_age=car_age, seg=seg),
                                    period_years, tax_rate,
                                    leasing=leasing) if use_tax else None
     tx = tx_data["total"] if tx_data else 0
@@ -2309,13 +2446,13 @@ def calculate_tco_quick(
     rv = vehicle_price - dep  # residual value
     sct_total = sct_annual_cost * period_years
     acquisition = leasing["total_cashflow_brutto"] if leasing else vehicle_price
-    tco = acquisition + et + mt + ins + sct_total - tx
+    tco = acquisition + et + mt + ins + skp_total + spp_total + sct_total - tx
     tco_net = tco - rv  # TCO netto = koszt po odzyskaniu RV
     return {"tco": tco, "tco_net": tco_net, "rv": rv,
             "per_km": tco_net / total_km if total_km > 0 else 0,
             "monthly": tco_net / (period_years * 12), "energy": et,
             "maint": mt, "ins": ins, "tax": tx, "dep": dep,
-            "sct": sct_total}
+            "sct": sct_total, "skp": skp_total, "spp": spp_total}
 
 
 # ===========================================================================
@@ -2481,6 +2618,15 @@ def _prefill_from_wizard(wdata):
     _fuel_idx, _ = WIZARD_FUEL_MAP.get(_fuel_label, (0, "ICE"))
     st.session_state.pop("fuel_type_ice", None)
     st.session_state["_prefill_fuel_idx"] = _fuel_idx
+
+    # ---- (K) Ubezpieczenie i SPP z wizarda ----
+    if wdata.get("oc_only", False):
+        st.session_state.pop("adv_ins_type", None)
+        st.session_state["adv_ins_type"] = "Tylko OC (bez AC)"
+    _wiz_spp = wdata.get("spp_city", "Brak")
+    if _wiz_spp != "Brak":
+        st.session_state.pop("adv_spp", None)
+        st.session_state["adv_spp"] = _wiz_spp
 
     # ---- (Z) Zachowaj surowe dane wizarda (dla banera podsumowania) ----
     st.session_state["_wizard_prefill"] = wdata
@@ -2823,6 +2969,46 @@ def _render_wizard(fuel_data):
                      "płacą mandat/ryczałt. BEV wjeżdża za darmo.",
             )
 
+            # SPP — Strefa Płatnego Parkowania
+            _spp_opts = list(SPP_ANNUAL_COST.keys())
+            _spp_default = wdata.get("spp_city", "Brak")
+            spp_city = st.selectbox(
+                "Parkujesz w strefie płatnego parkowania (SPP)?",
+                _spp_opts,
+                index=_spp_opts.index(_spp_default) if _spp_default in _spp_opts else 0,
+                key="wiz_spp",
+                help="Dojeżdżasz do pracy w centrum dużego miasta i parkujesz na ulicy? "
+                     "To duży koszt! BEV jest zwolniony z opłat (Ustawa o elektromobilności).",
+            )
+            spp_resident = False
+            if spp_city != "Brak":
+                spp_resident = st.checkbox(
+                    "Jestem mieszkańcem strefy (abonament)",
+                    value=wdata.get("spp_resident", False),
+                    key="wiz_spp_resident",
+                    help="Mieszkańcy SPP płacą ryczałt ~250 zł/rok zamiast stawek godzinowych.",
+                )
+                _spp_yr = SPP_ANNUAL_COST.get(spp_city, 0)
+                if spp_resident:
+                    _spp_yr = int(_spp_yr * SPP_RESIDENT_DISCOUNT)
+                st.caption(f"Szacowany roczny koszt parkowania: **{_spp_yr:,} zł** "
+                           f"{'(abonament mieszkańca)' if spp_resident else '(stawki godzinowe)'}"
+                           f" · BEV: **0 zł** 🔋")
+
+            # Ubezpieczenie — OC / OC+AC
+            _ins_opts = ["OC + AC (pełne)", "Tylko OC (bez AC)"]
+            _oc_only_default = wdata.get("oc_only", False)
+            _ins_default_idx = 1 if _oc_only_default else 0
+            ins_choice = st.radio(
+                "Ubezpieczenie samochodu",
+                _ins_opts,
+                index=_ins_default_idx,
+                key="wiz_insurance",
+                help="AC (autocasco) chroni przed kradzieżą i uszkodzeniami, ale kosztuje ~4% wartości auta rocznie. "
+                     "Dla aut starszych niż 8 lat AC automatycznie odpada (niska wartość).",
+            )
+            oc_only = ins_choice == "Tylko OC (bez AC)"
+
         nav_c1, nav_c2 = st.columns(2)
         with nav_c1:
             if st.button("← Wstecz", key="wiz_back_2"):
@@ -2837,6 +3023,9 @@ def _render_wizard(fuel_data):
                 wdata["driving_style"] = driving_style
                 wdata["sct_city"] = sct_city
                 wdata["work_charger"] = work_charger
+                wdata["spp_city"] = spp_city
+                wdata["spp_resident"] = spp_resident
+                wdata["oc_only"] = oc_only
                 if not _has_car_now:
                     wdata["_park_no_car"] = parking
                 st.session_state["wizard_data"] = wdata
@@ -3009,9 +3198,16 @@ def _render_wizard(fuel_data):
                     ("Amortyzacja (utrata wartości)", "dep"),
                     ("Paliwo / prąd", "energy"),
                     ("Serwis i naprawy", "maint"),
-                    ("Ubezpieczenie (OC+AC)", "ins"),
+                    ("Ubezpieczenie (OC/AC)", "ins"),
+                    ("Przegląd techniczny (SKP)", "skp"),
                     ("Starzenie (nieplan. naprawy)", "_aging_total"),
                 ]
+                _has_spp = any(
+                    _s_data.get("spp", 0) > 0
+                    for _, _s_data in _scenarios
+                )
+                if _has_spp:
+                    _cost_rows.append(("Parkowanie (SPP)", "spp"))
                 if _has_sct:
                     _cost_rows.append(("SCT (Strefa Czystego Transportu)", "sct"))
                 _cost_rows += [
@@ -3108,7 +3304,9 @@ def _render_wizard(fuel_data):
                         ("Amortyzacja (utrata wartości)", "dep"),
                         ("Paliwo / prąd", "energy"),
                         ("Serwis i naprawy", "maint"),
-                        ("Ubezpieczenie (OC+AC)", "ins"),
+                        ("Ubezpieczenie (OC/AC)", "ins"),
+                        ("Przegląd techniczny (SKP)", "skp"),
+                        ("Parkowanie (SPP)", "spp"),
                         ("Tarcza podatkowa", "_tax_neg"),
                         ("RAZEM (TCO netto)", "tco_net"),
                     ]
@@ -3274,6 +3472,12 @@ def _render_wizard(fuel_data):
                 _components.append(("Serwis", _maint_m, "#ef4444"))
             if _ins_m > 0:
                 _components.append(("Ubezpieczenie", _ins_m, "#3b82f6"))
+            _skp_m = _m(sk_data.get("skp", 0))
+            _spp_m = _m(sk_data.get("spp", 0))
+            if _skp_m > 0:
+                _components.append(("Przegląd SKP", _skp_m, "#8b5cf6"))
+            if _spp_m > 0:
+                _components.append(("Parking SPP", _spp_m, "#d97706"))
             if _sct_m > 0:
                 _components.append(("SCT", _sct_m, "#dc2626"))
             if _aging_m > 0:
@@ -3442,6 +3646,17 @@ def _render_wizard(fuel_data):
                         st.success(
                             f"✅ **SCT ({_sct_city_w})** — Twoje auto spełnia normy Euro "
                             f"i wjeżdża do strefy za darmo. BEV również."
+                        )
+                # Info o parkingu SPP
+                _spp_city_w = wdata.get("spp_city", "Brak")
+                if _spp_city_w != "Brak":
+                    _spp_keep = results["keep"].get("spp", 0)
+                    if _spp_keep > 0:
+                        st.info(
+                            f"🅿️ **Parking w strefie SPP ({_spp_city_w})** — "
+                            f"koszt parkowania: **~{_spp_keep / period:,.0f} zł/rok** "
+                            f"({_spp_keep:,.0f} zł w {period} lat). "
+                            f"**BEV parkuje za darmo** (Ustawa o elektromobilności)."
                         )
                 # Info o ładowarce w pracy
                 _wch = wdata.get("work_charger", "Brak")
@@ -4711,6 +4926,43 @@ else:
         dc_price_custom = 2.30
         ac_pub_price = 1.95
     
+    st.subheader("Ubezpieczenie i parkowanie")
+    _adv_c1, _adv_c2, _adv_c3 = st.columns(3)
+    with _adv_c1:
+        adv_ins_type = st.radio(
+            "Ubezpieczenie",
+            ["OC + AC (pełne)", "Tylko OC (bez AC)"],
+            index=0,
+            key="adv_ins_type",
+            help="AC (autocasco) kosztuje ~4% wartości auta/rok. "
+                 "Dla aut 8+ lat AC automatycznie odpada.",
+        )
+        adv_oc_only = adv_ins_type == "Tylko OC (bez AC)"
+    with _adv_c2:
+        _adv_spp_opts = list(SPP_ANNUAL_COST.keys())
+        adv_spp_city = st.selectbox(
+            "Strefa płatnego parkowania (SPP)",
+            _adv_spp_opts,
+            index=0,
+            key="adv_spp",
+            help="Dojeżdżasz do centrum dużego miasta? BEV nie płaci za parkowanie! "
+                 "(Ustawa o elektromobilności)",
+        )
+    with _adv_c3:
+        adv_spp_resident = False
+        if adv_spp_city != "Brak":
+            adv_spp_resident = st.checkbox(
+                "Mieszkaniec strefy (abonament)",
+                value=False,
+                key="adv_spp_resident",
+                help="Abonament ~250 zł/rok zamiast stawek godzinowych.",
+            )
+        _adv_spp_annual = SPP_ANNUAL_COST.get(adv_spp_city, 0)
+        if adv_spp_resident and _adv_spp_annual > 0:
+            _adv_spp_annual = int(_adv_spp_annual * SPP_RESIDENT_DISCOUNT)
+        if _adv_spp_annual > 0:
+            st.caption(f"Szacowany koszt: **{_adv_spp_annual:,} zł/rok** · BEV: **0 zł** 🔋")
+
     st.subheader("Parametry podatkowe")
     col7, col8, col9 = st.columns(3)
     with col7:
@@ -5659,7 +5911,7 @@ else:
             detail_cats += [
                 f"Paliwo / Prąd ({period_years} lata)",
                 f"Serwis i naprawy ({period_years} lata)",
-                f"Ubezpieczenie OC+AC ({period_years} lata)",
+                f"Ubezpieczenie OC/AC ({period_years} lata)",
                 "Utrata wartości (deprecjacja)",
                 "Tarcza podatkowa 2026 (oszczędność)",
                 "TCO brutto (suma wydatków)",
@@ -6119,7 +6371,8 @@ else:
                 vehicle_price_ice, "ICE", is_new_ice, annual_mileage, period_years, road_split,
                 fuel_price=fuel_price, city_l=ice_city_l, highway_l=ice_highway_l,
                 fuel_type_idx=fuel_type_idx, pb95_price=_a_pb95,
-                use_tax=use_tax_shield, tax_rate=tax_rate)
+                use_tax=use_tax_shield, tax_rate=tax_rate,
+                oc_only=adv_oc_only, spp_annual_cost=_adv_spp_annual)
             scenarios.append({"Konfig.": f"🔴 ICE: {ice_model}", "PV": 0, "BESS": 0,
                               "Taryfa": "—", "Inwestycja": 0, "napęd": "ICE", **r})
             # HYB baseline
@@ -6135,7 +6388,8 @@ else:
                 has_dynamic_tariff=has_dynamic_tariff if hyb_type == "PHEV" else False,
                 elec_pct=hyb_elec_pct if hyb_type == "PHEV" else 0,
                 has_submeter=has_submeter, has_price_cap=has_price_cap,
-                use_tax=use_tax_shield, tax_rate=tax_rate)
+                use_tax=use_tax_shield, tax_rate=tax_rate,
+                oc_only=adv_oc_only, spp_annual_cost=_adv_spp_annual)
             scenarios.append({"Konfig.": f"🟠 {hyb_type}: {hyb_model}", "PV": 0, "BESS": 0,
                               "Taryfa": "—", "Inwestycja": 0, "napęd": hyb_type, **r_h})
     
@@ -6158,7 +6412,8 @@ else:
                             has_home_charger=has_garage, has_dynamic_tariff=dyn,
                             has_old_pv=has_old_pv, suc_distance=suc_distance,
                             has_submeter=has_submeter, has_price_cap=has_price_cap,
-                            use_tax=use_tax_shield, tax_rate=tax_rate)
+                            use_tax=use_tax_shield, tax_rate=tax_rate,
+                            oc_only=adv_oc_only, spp_annual_cost=_adv_spp_annual)
                         invest = 0
                         if include_invest:
                             pv_cost = 0 if has_pv_already else pv * PV_COST_PER_KWP

@@ -448,10 +448,94 @@ class TestDepreciation:
 
 class TestInsurance:
     def test_bev_more_expensive(self):
-        assert app.estimate_insurance(200_000, "bev") >= app.estimate_insurance(200_000, "ice")
+        assert app.estimate_insurance(200_000, "BEV") >= app.estimate_insurance(200_000, "ICE")
 
     def test_proportional_to_price(self):
-        assert app.estimate_insurance(300_000, "ice") > app.estimate_insurance(80_000, "ice")
+        assert app.estimate_insurance(300_000, "ICE") > app.estimate_insurance(80_000, "ICE")
+
+    def test_oc_only_cheaper_than_full(self):
+        full = app.estimate_insurance(100_000, "ICE", oc_only=False, car_age=2)
+        oc = app.estimate_insurance(100_000, "ICE", oc_only=True, car_age=2)
+        assert oc < full
+
+    def test_old_car_drops_ac_automatically(self):
+        """Auta 8+ lat automatycznie tracą AC (tylko OC)."""
+        young = app.estimate_insurance(80_000, "ICE", car_age=3)
+        old = app.estimate_insurance(80_000, "ICE", car_age=10)
+        assert old < young  # OC only < OC + AC
+
+    def test_oc_only_returns_just_oc(self):
+        oc = app.estimate_insurance(200_000, "ICE", oc_only=True)
+        # OC should be segment-based, not price-dependent
+        assert oc < 2000  # max OC is ~1200 for vans
+
+    def test_ac_rate_applied(self):
+        """AC = ~4% wartości auta."""
+        ins = app.estimate_insurance(100_000, "ICE", oc_only=False, car_age=0)
+        oc = app.estimate_insurance(100_000, "ICE", oc_only=True, car_age=0)
+        ac_portion = ins - oc
+        assert 3500 < ac_portion < 5000  # ~4% of 100k
+
+
+class TestSKP:
+    def test_skp_included_in_tco(self):
+        """Auta 4+ lat mają koszt przeglądu SKP."""
+        r = app.calculate_tco_quick(
+            80_000, "ICE", False, 15_000, 5, (0.5, 0.3, 0.2),
+            fuel_price=6.50, city_l=7.0, highway_l=5.5, car_age=5,
+        )
+        assert r["skp"] > 0
+        assert r["skp"] == app.SKP_ANNUAL_COST * 5  # 5 years, all above threshold
+
+    def test_new_car_no_skp(self):
+        """Nowe auta (0-3 lat) nie płacą SKP."""
+        r = app.calculate_tco_quick(
+            80_000, "ICE", True, 15_000, 3, (0.5, 0.3, 0.2),
+            fuel_price=6.50, city_l=7.0, highway_l=5.5, car_age=0,
+        )
+        assert r["skp"] == 0
+
+    def test_lpg_skp_more_expensive(self):
+        """LPG ma droższy przegląd SKP."""
+        r_pb = app.calculate_tco_quick(
+            80_000, "ICE", False, 15_000, 1, (0.5, 0.3, 0.2),
+            fuel_price=6.50, city_l=7.0, highway_l=5.5,
+            fuel_type_idx=0, car_age=5,
+        )
+        r_lpg = app.calculate_tco_quick(
+            80_000, "ICE", False, 15_000, 1, (0.5, 0.3, 0.2),
+            fuel_price=3.20, city_l=7.0, highway_l=5.5,
+            fuel_type_idx=2, pb95_price=6.50, car_age=5,
+        )
+        assert r_lpg["skp"] > r_pb["skp"]
+
+
+class TestSPP:
+    def test_bev_free_parking(self):
+        """BEV zwolniony z opłat SPP."""
+        r = app.calculate_tco_quick(
+            150_000, "BEV", True, 15_000, 5, (0.5, 0.3, 0.2),
+            city_kwh=15, highway_kwh=18, battery_cap=60,
+            spp_annual_cost=5000,
+        )
+        assert r["spp"] == 0
+
+    def test_ice_pays_spp(self):
+        """ICE płaci za SPP."""
+        r = app.calculate_tco_quick(
+            80_000, "ICE", False, 15_000, 5, (0.5, 0.3, 0.2),
+            fuel_price=6.50, city_l=7.0, highway_l=5.5,
+            spp_annual_cost=5000,
+        )
+        assert r["spp"] == 25_000  # 5000 × 5 lat
+
+    def test_no_spp_by_default(self):
+        """Domyślnie brak SPP."""
+        r = app.calculate_tco_quick(
+            80_000, "ICE", False, 15_000, 5, (0.5, 0.3, 0.2),
+            fuel_price=6.50, city_l=7.0, highway_l=5.5,
+        )
+        assert r["spp"] == 0
 
 
 # ===========================================================================
