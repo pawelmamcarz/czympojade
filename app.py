@@ -2,7 +2,8 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "23.7"
+import datetime as _dt
+APP_VERSION = _dt.date.today().strftime("%Y.%m.%d")
 
 import math
 import re
@@ -14,6 +15,11 @@ except ImportError:
     _HAS_ANALYTICS = False
 import numpy as np
 import pandas as pd
+try:
+    from analytics import log_visit, render_admin_panel
+    _HAS_VISITOR_LOG = True
+except ImportError:
+    _HAS_VISITOR_LOG = False
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import highspy
@@ -2525,6 +2531,12 @@ def _render_wizard(fuel_data):
                 with st.spinner("Analizuję Twoją sytuację..."):
                     results = run_wizard_analysis(wdata, fuel_data)
                 st.session_state["wizard_results"] = results
+                # Log visit (async, non-blocking)
+                if _HAS_VISITOR_LOG:
+                    try:
+                        log_visit(wdata, results, APP_VERSION)
+                    except Exception:
+                        pass  # analytics failure nie blokuje usera
                 st.session_state["wizard_step"] = 3
                 st.rerun()
 
@@ -6368,3 +6380,7 @@ st.markdown(
 
 if _HAS_ANALYTICS:
     sta.stop_tracking()
+
+# --- Panel admina (analytics) ---
+if _HAS_VISITOR_LOG:
+    render_admin_panel()

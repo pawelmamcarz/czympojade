@@ -987,8 +987,10 @@ class TestTCOQuickLPG:
 # ===========================================================================
 
 class TestVersion23:
-    def test_version_23(self):
-        assert app.APP_VERSION == "23.7"
+    def test_version_date_format(self):
+        """Wersja ma format YYYY.MM.DD."""
+        import re
+        assert re.match(r"\d{4}\.\d{2}\.\d{2}", app.APP_VERSION)
 
 
 class TestBudgetBeaters:
