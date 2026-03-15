@@ -2928,6 +2928,76 @@ def _render_wizard(fuel_data):
             )
             st.plotly_chart(fig, use_container_width=True)
 
+        # --- Sankey: skąd się bierze Twój koszt miesięczny ---
+        # Pokaż Sankey dla wariantu z najniższym TCO (verdict) lub keep
+        _sankey_key = verdict if verdict in results else ("keep" if "keep" in results else None)
+        if _sankey_key and _sankey_key in results:
+            _sk = results[_sankey_key]
+            _sk_monthly = _sk.get("monthly", 0)
+            _sk_name = _sk.get("name", _sankey_key)[:30]
+            if _sk_monthly > 0:
+                _sk_period = period
+                _m = lambda v: abs(v) / (_sk_period * 12)  # noqa: E731
+                # Składowe miesięczne
+                _components = []
+                _dep_m = _m(_sk.get("dep", 0))
+                _energy_m = _m(_sk.get("energy", 0))
+                _maint_m = _m(_sk.get("maint", 0))
+                _ins_m = _m(_sk.get("ins", 0))
+                _sct_m = _m(_sk.get("sct", 0))
+                _aging_m = _m(_sk.get("aging", {}).get("total", 0)) if isinstance(_sk.get("aging"), dict) else 0
+                _tax_m = _m(_sk.get("tax", 0))
+
+                if _dep_m > 0:
+                    _components.append(("Amortyzacja", _dep_m, "#94a3b8"))
+                if _energy_m > 0:
+                    _elbl = "Prąd" if results.get("keep_engine_type") == "BEV" and _sankey_key == "keep" else (
+                        "Prąd" if _sankey_key == "bev" else "Paliwo")
+                    _components.append((_elbl, _energy_m, "#f59e0b"))
+                if _maint_m > 0:
+                    _components.append(("Serwis", _maint_m, "#ef4444"))
+                if _ins_m > 0:
+                    _components.append(("Ubezpieczenie", _ins_m, "#3b82f6"))
+                if _sct_m > 0:
+                    _components.append(("SCT", _sct_m, "#dc2626"))
+                if _aging_m > 0:
+                    _components.append(("Naprawy", _aging_m, "#b91c1c"))
+                if _tax_m > 0:
+                    _components.append(("Tarcza podat.", -_tax_m, "#22c55e"))
+
+                # Filter out zero/near-zero
+                _components = [(n, v, c) for n, v, c in _components if abs(v) > 5]
+
+                if _components:
+                    # Sankey: source=0 (Twój budżet) → each component
+                    _labels = [f"{_sk_name}\n{_sk_monthly:,.0f} zł/mies."] + [
+                        f"{n}\n{v:,.0f} zł" for n, v, _ in _components
+                    ]
+                    _sources = [0] * len(_components)
+                    _targets = list(range(1, len(_components) + 1))
+                    _values = [abs(v) for _, v, _ in _components]
+                    _colors = [c for _, _, c in _components]
+                    _link_colors = [c + "80" for c in _colors]  # transparent
+
+                    fig_sankey = go.Figure(data=[go.Sankey(
+                        node=dict(
+                            pad=15, thickness=20,
+                            label=_labels,
+                            color=["#1e293b"] + _colors,
+                        ),
+                        link=dict(
+                            source=_sources, target=_targets,
+                            value=_values, color=_link_colors,
+                        ),
+                    )])
+                    fig_sankey.update_layout(
+                        title=f"Skąd się bierze {_sk_monthly:,.0f} zł/mies.?",
+                        height=350,
+                        margin=dict(t=50, b=20, l=20, r=20),
+                        font=dict(size=13),
+                    )
+                    st.plotly_chart(fig_sankey, use_container_width=True)
+
         # --- Insights ---
         with st.expander("💡 Co to oznacza?", expanded=True):
             if has_car and "keep" in results:
