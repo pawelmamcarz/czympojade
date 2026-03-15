@@ -66,17 +66,24 @@ st.set_page_config(
 # --- Ukryj "Made with Streamlit" z menu hamburger ---
 st.markdown(
     """<style>
-    /* Usuń wielki biały padding na górze strony */
+    /* Usuń biały padding na górze */
     .stApp > header {display: none !important;}
     .block-container {padding-top: 1rem !important; padding-bottom: 1rem !important;}
-    section[data-testid="stSidebar"] > div {padding-top: 1rem;}
-    /* Hide Streamlit branding */
-    #MainMenu .st-emotion-cache-eczf16 {display: none;}
-    footer {visibility: hidden;}
-    [data-testid="manage-app-button"] {display: none;}
-    .reportview-container .main footer {visibility: hidden;}
-    div[data-testid="stToolbarActions"] button:last-child {display: none;}
+    /* Ukryj WSZYSTKO co mówi "Streamlit" */
+    footer {display: none !important; visibility: hidden !important;}
+    .stApp footer {display: none !important;}
+    [data-testid="manage-app-button"] {display: none !important;}
+    /* "Made with Streamlit" w menu hamburger */
     #MainMenu ul li:last-child {display: none !important;}
+    /* Toolbar deploy button */
+    .stDeployButton {display: none !important;}
+    div[data-testid="stToolbarActions"] > div:last-child {display: none !important;}
+    /* Footer "Made with Streamlit" */
+    .viewerBadge_container__r5tak {display: none !important;}
+    .styles_viewerBadge__CvC9N {display: none !important;}
+    ._profileContainer_gzau3_53 {display: none !important;}
+    ._profilePreview_gzau3_63 {display: none !important;}
+    [data-testid="stDecoration"] {display: none !important;}
     </style>""",
     unsafe_allow_html=True,
 )
@@ -236,7 +243,7 @@ if _wiz_step == 0:
             <div style="font-size: 1.15rem; color: #94a3b8; margin-bottom: 24px; max-width: 640px;">
                 Większość kierowców nie zna pełnego kosztu swojego samochodu.
                 Paliwo to dopiero początek — dochodzi amortyzacja, serwis, ubezpieczenie, naprawy…
-                <br><b style="color:#e2e8f0">Policz TCO i sprawdź, czy Twoje auto to dobry deal.</b>
+                <br><b style="color:#e2e8f0">Policz rzeczywisty koszt posiadania i sprawdź, czy nie przepłacasz.</b>
             </div>
             <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
                 <div style="
@@ -300,7 +307,7 @@ else:
     with _col_title:
         st.markdown(
             "<div style='font-size:1.1rem; color:#64748b; margin-bottom:-8px;'>"
-            "⚡ <b>CzymPojade.pl</b> — kalkulator TCO</div>",
+            "⚡ <b>CzymPojade.pl</b> — rzeczywisty koszt posiadania auta</div>",
             unsafe_allow_html=True,
         )
     with _col_home:
