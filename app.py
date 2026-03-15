@@ -63,6 +63,20 @@ st.set_page_config(
     layout="wide",
 )
 
+# --- Ukryj "Made with Streamlit" z menu hamburger ---
+st.markdown(
+    """<style>
+    #MainMenu .st-emotion-cache-eczf16 {display: none;}
+    footer {visibility: hidden;}
+    [data-testid="manage-app-button"] {display: none;}
+    .reportview-container .main footer {visibility: hidden;}
+    div[data-testid="stToolbarActions"] button:last-child {display: none;}
+    /* Hide "Made with Streamlit" text in hamburger menu */
+    #MainMenu ul li:last-child {display: none !important;}
+    </style>""",
+    unsafe_allow_html=True,
+)
+
 # --- SEO: meta tagi, Open Graph, Twitter Card, JSON-LD ---
 _SEO_TITLE = "Kalkulator TCO CzymPojade.pl — porównaj koszty auta elektrycznego, hybrydowego i spalinowego"
 _SEO_DESC = (
@@ -567,6 +581,15 @@ AGING_MILEAGE_THRESHOLD = 150_000  # km — powyżej dodatkowy mnożnik
 AGING_GROWTH_RATE = 0.15     # +15% rocznie powyżej AGING_START_YEAR
 AGING_HIGH_MILEAGE_MULT = 1.3  # ×1.3 jeśli przebieg > threshold
 
+# Mnożnik ryzyka awarii — suwak w wizardzie
+# 0 = "Znam auto, jest sprawne" (optymista), 100 = "Niepewna historia" (pesymista)
+# Mapowanie: slider 0→×0.3, slider 50→×1.0 (bazowy), slider 100→×1.8
+RISK_FACTOR_MIN = 0.3   # optymistyczny scenariusz
+RISK_FACTOR_MAX = 1.8   # pesymistyczny scenariusz
+# Wpływ ryzyka na wartość rezydualną (odsprzedaż)
+# risk=0.3 → auto zadbane, premium +10%; risk=1.8 → ryzykowne, dyskonto -16%
+RISK_RV_SLOPE = 0.20    # rv_mult = 1.0 - (risk - 1.0) * slope
+
 # ---------------------------------------------------------------------------
 # Deprecjacja – krzywa wartości rynkowej (weryfikacja: Otomoto 03/2026)
 # Formuła: retention = floor + (1 - floor) * exp(-rate * age)
@@ -583,20 +606,18 @@ DEPR_RATE = 0.18           # tempo spadku (kalibracja na Otomoto: Corolla, Golf,
 # ---------------------------------------------------------------------------
 SCT_FINE_PER_ENTRY = 500        # Mandat za wjazd do SCT bez uprawnień (zł)
 SCT_FREE_ENTRIES = 4            # Darmowe wjazdy rocznie (Warszawa)
-# Rok produkcji minimalny do wjazdu (najostrzejszy z miast – Kraków)
-SCT_MIN_YEAR_PETROL = 2005      # Euro 4+ (benzyna / LPG)
-SCT_MIN_YEAR_DIESEL = 2009      # Euro 5+ (diesel)
 SCT_CITIES = ["Warszawa", "Kraków"]  # Aktywne SCT w 2026
 # BEV / PHEV (tryb EV) – zawsze uprawnione do wjazdu
-# Szacowany roczny koszt SCT dla ICE niespełniającego norm (wjazdy do centrum)
-SCT_ANNUAL_COST_PROFILES = {
-    "Codziennie dojeżdżam": 20 * 12,  # 20 wjazdów/mies × 12 mies = 240 wjazdów
-    "Kilka razy w tygodniu": 10 * 12,  # 120 wjazdów
-    "Kilka razy w miesiącu": 4 * 12,   # 48 wjazdów
-}
-# Koszt per wjazd = mandat 500 zł, ale w praktyce kupuje się naklejkę (ryczałt).
-# Ryczałt roczny szacowany na ~1200-2500 zł dla aut starszych.
-SCT_ANNUAL_FEE_ICE = 1_800  # Średni roczny koszt (ryczałt / naklejka)
+# SCT = ZAKAZ WJAZDU dla aut niespełniających normy Euro + mandat 500 zł
+# Warszawa 2026: benzyna Euro 4+ (prod. od 2006), diesel Euro 6+ (prod. od 2014)
+# Progi wieku auta — powyżej tego SCT ZAKAZUJE wjazdu
+SCT_MIN_YEAR_PETROL = 2006      # Euro 4+ (benzyna / LPG) — prod. od tego roku wjeżdża
+SCT_MIN_YEAR_DIESEL = 2014      # Euro 6+ (diesel) — prod. od tego roku wjeżdża
+SCT_AGE_THRESHOLD_PETROL = 20  # benzyna/LPG: 20+ lat → zakaz (= 2026 - 2006)
+SCT_AGE_THRESHOLD_DIESEL = 12  # diesel: 12+ lat → zakaz (= 2026 - 2014)
+# Realistyczny koszt: zakaz wjazdu → omijanie strefy lub ryzyko mandatu
+# Zakładamy mix: dodatkowy dojazd + parkuj&jedź + sporadyczne mandaty
+SCT_ANNUAL_FEE_OLD_CAR = 3_600  # 300 zł/mies. (objazdy + mandaty + parkuj i jedź)
 # Ładowarka w pracy — domyślna cena za kWh
 WORK_CHARGER_PRICE_DEFAULT = 1.50  # zł/kWh
 
@@ -1325,8 +1346,21 @@ def estimate_car_value_reasoning(base_price: int, age: int) -> str:
         )
 
 
+def _risk_slider_to_factor(slider_value):
+    """Konwertuj wartość suwaka 0–100 na mnożnik ryzyka.
+
+    0   → RISK_FACTOR_MIN (0.3) — "Znam auto, jest sprawne"
+    50  → 1.0                   — bazowy scenariusz
+    100 → RISK_FACTOR_MAX (1.8) — "Niepewna historia, wolę się zabezpieczyć"
+    """
+    if slider_value <= 50:
+        return RISK_FACTOR_MIN + (1.0 - RISK_FACTOR_MIN) * (slider_value / 50)
+    else:
+        return 1.0 + (RISK_FACTOR_MAX - 1.0) * ((slider_value - 50) / 50)
+
+
 def calculate_aging_cost(segment_key, car_start_age, start_mileage, annual_km,
-                         period_years, engine_type):
+                         period_years, engine_type, risk_factor=1.0):
     """Koszty starzenia (nieplanowane naprawy, korozja) dla starych aut.
 
     Od AGING_START_YEAR (8) koszty rosną progresywnie o AGING_GROWTH_RATE (15%)
@@ -1335,6 +1369,8 @@ def calculate_aging_cost(segment_key, car_start_age, start_mileage, annual_km,
     BEV: penalty ×0.3 (brak układu wydechowego, mniej płynów/ruchomych części).
     HEV/PHEV: penalty ×0.7 (układ spalinowy, ale mniejsze zużycie).
     ICE/LPG: penalty ×1.0 (pełne koszty starzenia).
+
+    risk_factor: mnożnik z suwaka ryzyka (0.3–1.8). Domyślnie 1.0 (bazowy).
     """
     if engine_type == "BEV":
         drivetrain_factor = 0.3
@@ -1364,6 +1400,7 @@ def calculate_aging_cost(segment_key, car_start_age, start_mileage, annual_km,
             cost *= AGING_HIGH_MILEAGE_MULT
 
         cost *= drivetrain_factor
+        cost *= risk_factor
         yearly_costs.append(cost)
         total += cost
 
@@ -1372,6 +1409,7 @@ def calculate_aging_cost(segment_key, car_start_age, start_mileage, annual_km,
         "yearly": yearly_costs,
         "annual_avg": total / period_years if period_years > 0 else 0,
         "applies": any(c > 0 for c in yearly_costs),
+        "risk_factor": risk_factor,
     }
 
 
@@ -1760,12 +1798,20 @@ def run_wizard_analysis(wizard_data, fuel_data):
     has_garage = wizard_data.get("has_garage", False)
     has_pv = wizard_data.get("has_pv", False)
     pv_kwp = 5.0 if has_pv else 0.0
-    bess_kwh = 0.0
+    has_bess = wizard_data.get("has_bess", False)
+    bess_kwh = 10.0 if (has_bess and has_pv) else 0.0
 
     # SCT — Strefa Czystego Transportu
     sct_city = wizard_data.get("sct_city", "Nie dotyczy")
     sct_applies = sct_city in ("Warszawa", "Kraków")
-    sct_annual_ice = SCT_ANNUAL_FEE_ICE if sct_applies else 0  # ICE/HEV starsze płacą
+    # SCT: koszt zależy od wieku auta i paliwa — nowe auta wjeżdżają za darmo
+    car_age_wiz = wizard_data.get("car_age", 0)
+    fuel_label_wiz = wizard_data.get("current_fuel", "Benzyna")
+    _fti_wiz, _et_wiz = WIZARD_FUEL_MAP.get(fuel_label_wiz, (0, "ICE"))
+    if sct_applies and car_age_wiz >= (SCT_AGE_THRESHOLD_DIESEL if _fti_wiz == 1 else SCT_AGE_THRESHOLD_PETROL):
+        sct_annual_ice = SCT_ANNUAL_FEE_OLD_CAR
+    else:
+        sct_annual_ice = 0  # auto spełnia normy Euro → wjeżdża za darmo
 
     # Ładowarka w pracy
     _work_ch = wizard_data.get("work_charger", "Brak")
@@ -1834,11 +1880,23 @@ def run_wizard_analysis(wizard_data, fuel_data):
         # --- Koszty starzenia dla "zachowaj" ---
         car_age = wizard_data.get("car_age", 0)
         start_mileage = wizard_data.get("start_mileage", car_age * 15_000)
+        risk_factor = _risk_slider_to_factor(wizard_data.get("risk_slider", 50))
         aging = calculate_aging_cost(
             segment_key, car_age, start_mileage, annual_mileage,
-            period, engine_type,
+            period, engine_type, risk_factor=risk_factor,
         )
-        r_keep["tco_net"] = r_keep.get("tco_net", 0) + aging["total"]
+        # --- Korekta wartości rezydualnej wg ryzyka ---
+        # Pesymista: auto w gorszym stanie → niższa cena odsprzedaży
+        # Optymista: zadbane auto → lekki premium przy sprzedaży
+        rv_orig = r_keep.get("rv", 0)
+        rv_mult = max(0.5, 1.0 - (risk_factor - 1.0) * RISK_RV_SLOPE)
+        rv_adjusted = rv_orig * rv_mult
+        rv_delta = rv_orig - rv_adjusted  # > 0 = strata, < 0 = zysk
+
+        r_keep["rv"] = rv_adjusted
+        r_keep["rv_risk_mult"] = rv_mult
+        r_keep["rv_risk_delta"] = rv_delta
+        r_keep["tco_net"] = r_keep.get("tco_net", 0) + aging["total"] + rv_delta
         r_keep["monthly"] = r_keep["tco_net"] / (period * 12)
 
         results["keep"] = {
@@ -2472,16 +2530,21 @@ def _render_wizard(fuel_data):
                 wdata["_last_age"] = car_age
                 wdata["_last_segment"] = current_segment
 
+                # Inicjalizuj session_state jeśli nie istnieje (unikamy konfliktu value + session_state)
+                if "wiz_value" not in st.session_state:
+                    st.session_state["wiz_value"] = wdata.get("car_value", estimated_value)
+                if "wiz_start_mileage" not in st.session_state:
+                    st.session_state["wiz_start_mileage"] = wdata.get("start_mileage", car_age * 15_000)
+                if "wiz_km" not in st.session_state:
+                    st.session_state["wiz_km"] = wdata.get("monthly_km", 1500)
+
                 if _seg_or_age_changed:
-                    # Wymuś aktualizację widgetów — Streamlit ignoruje `value`
-                    # po pierwszym renderze, trzeba pisać do session_state
                     st.session_state["wiz_value"] = estimated_value
                     st.session_state["wiz_start_mileage"] = car_age * 15_000
 
                 car_value = st.number_input(
                     "Przybliżona wartość (zł)",
                     min_value=3_000, max_value=500_000,
-                    value=wdata.get("car_value", estimated_value),
                     step=5_000,
                     key="wiz_value",
                     help="Ile mniej-więcej warte jest Twoje auto dziś? Estymacja na bazie Otomoto.",
@@ -2494,7 +2557,6 @@ def _render_wizard(fuel_data):
                 monthly_km = st.number_input(
                     "Ile km miesięcznie?",
                     min_value=100, max_value=10_000,
-                    value=wdata.get("monthly_km", 1500),
                     step=100,
                     key="wiz_km",
                 )
@@ -2502,11 +2564,36 @@ def _render_wizard(fuel_data):
                 start_mileage = st.number_input(
                     "Aktualny przebieg (km)",
                     min_value=0, max_value=500_000,
-                    value=wdata.get("start_mileage", car_age * 15_000),
                     step=10_000,
                     key="wiz_start_mileage",
                     help="Przybliżony odczyt z licznika. Wpływa na koszty napraw starszych aut.",
                 )
+
+                # Suwak ryzyka awarii
+                if "wiz_risk" not in st.session_state:
+                    st.session_state["wiz_risk"] = wdata.get("risk_slider", 50)
+                risk_slider = st.slider(
+                    "Ryzyko awarii / nieplanowanych napraw",
+                    min_value=0, max_value=100,
+                    step=5,
+                    key="wiz_risk",
+                    help="Jak oceniasz stan techniczny i historię auta? "
+                         "Przesuń w lewo jeśli znasz auto i jest zadbane, "
+                         "w prawo jeśli historia jest niepewna lub auto ma dużo napraw.",
+                )
+                # Etykieta pod suwakiem
+                if risk_slider <= 15:
+                    _rl = "🟢 Optymista — znasz auto, jest sprawne"
+                elif risk_slider <= 40:
+                    _rl = "🟡 Raczej OK — mało napraw"
+                elif risk_slider <= 60:
+                    _rl = "⚪ Standardowy scenariusz"
+                elif risk_slider <= 85:
+                    _rl = "🟠 Ostrożny — wolisz się zabezpieczyć"
+                else:
+                    _rl = "🔴 Pesymista — niepewna historia auta"
+                _risk_f = _risk_slider_to_factor(risk_slider)
+                st.caption(f"{_rl}  ·  mnożnik kosztów napraw: ×{_risk_f:.2f}")
 
         else:
             col_a, col_b = st.columns(2)
@@ -2570,6 +2657,7 @@ def _render_wizard(fuel_data):
                     wdata["car_age"] = car_age
                     wdata["car_value"] = car_value
                     wdata["start_mileage"] = start_mileage
+                    wdata["risk_slider"] = risk_slider
                 else:
                     wdata["budget_monthly"] = budget_monthly
                     wdata["prefer_new"] = prefer_new
@@ -2611,6 +2699,17 @@ def _render_wizard(fuel_data):
                 index=["Tak", "Nie", "Planuję"].index(wdata.get("pv_choice", "Nie")),
                 key="wiz_pv",
             )
+            if pv_choice in ("Tak", "Planuję"):
+                bess_choice = st.radio(
+                    "Magazyn energii (BESS)?",
+                    ["Nie mam", "Tak, mam magazyn"],
+                    index=1 if wdata.get("has_bess", False) else 0,
+                    key="wiz_bess",
+                    help="Magazyn energii (np. 10 kWh) pozwala ładować BEV tanim prądem z PV "
+                         "nocą lub w godzinach szczytu. Znacząco obniża koszty ładowania.",
+                )
+            else:
+                bess_choice = "Nie mam"
             _work_charger_opts = ["Brak", "Darmowa", "Płatna (~1,50 zł/kWh)"]
             _work_default = wdata.get("work_charger", "Brak")
             work_charger = st.radio(
@@ -2652,6 +2751,7 @@ def _render_wizard(fuel_data):
                 wdata["has_garage"] = "Garaż" in parking
                 wdata["has_pv"] = pv_choice == "Tak"
                 wdata["pv_choice"] = pv_choice
+                wdata["has_bess"] = bess_choice == "Tak, mam magazyn"
                 wdata["driving_style"] = driving_style
                 wdata["sct_city"] = sct_city
                 wdata["work_charger"] = work_charger
@@ -3059,86 +3159,111 @@ def _render_wizard(fuel_data):
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        # --- Sankey: skąd się bierze Twój koszt miesięczny ---
-        # Pokaż Sankey dla wariantu z najniższym TCO (verdict) lub keep
-        _sankey_key = verdict if verdict in results else ("keep" if "keep" in results else None)
-        if _sankey_key and _sankey_key in results:
-            _sk = results[_sankey_key]
-            _sk_monthly = _sk.get("monthly", 0)
-            _sk_name = _sk.get("name", _sankey_key)[:30]
-            if _sk_monthly > 0:
-                _sk_period = period
-                _m = lambda v: abs(v) / (_sk_period * 12)  # noqa: E731
-                # Składowe miesięczne
-                _components = []
-                _dep_m = _m(_sk.get("dep", 0))
-                _energy_m = _m(_sk.get("energy", 0))
-                _maint_m = _m(_sk.get("maint", 0))
-                _ins_m = _m(_sk.get("ins", 0))
-                _sct_m = _m(_sk.get("sct", 0))
-                _aging_m = _m(_sk.get("aging", {}).get("total", 0)) if isinstance(_sk.get("aging"), dict) else 0
-                _tax_m = _m(_sk.get("tax", 0))
+        # --- Sankey: skąd się bierze koszt miesięczny (tabs per wariant) ---
+        def _hex_to_rgba(h, alpha=0.5):
+            h = h.lstrip("#")
+            return f"rgba({int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)},{alpha})"
 
-                if _dep_m > 0:
-                    _components.append(("Amortyzacja", _dep_m, "#94a3b8"))
-                if _energy_m > 0:
-                    _elbl = "Prąd" if results.get("keep_engine_type") == "BEV" and _sankey_key == "keep" else (
-                        "Prąd" if _sankey_key == "bev" else "Paliwo")
-                    _components.append((_elbl, _energy_m, "#f59e0b"))
-                if _maint_m > 0:
-                    _components.append(("Serwis", _maint_m, "#ef4444"))
-                if _ins_m > 0:
-                    _components.append(("Ubezpieczenie", _ins_m, "#3b82f6"))
-                if _sct_m > 0:
-                    _components.append(("SCT", _sct_m, "#dc2626"))
-                if _aging_m > 0:
-                    _components.append(("Naprawy", _aging_m, "#b91c1c"))
-                if _tax_m > 0:
-                    _components.append(("Tarcza podat.", -_tax_m, "#22c55e"))
+        def _build_sankey(sankey_key, sk_data, sk_name, period_yrs):
+            """Buduj Sankey figure dla danego wariantu."""
+            _sk_monthly = sk_data.get("monthly", 0)
+            if _sk_monthly <= 0:
+                return None
+            _m = lambda v: abs(v) / (period_yrs * 12)  # noqa: E731
+            _components = []
+            _dep_m = _m(sk_data.get("dep", 0))
+            _energy_m = _m(sk_data.get("energy", 0))
+            _maint_m = _m(sk_data.get("maint", 0))
+            _ins_m = _m(sk_data.get("ins", 0))
+            _sct_m = _m(sk_data.get("sct", 0))
+            _aging_m = (_m(sk_data.get("aging", {}).get("total", 0))
+                        if isinstance(sk_data.get("aging"), dict) else 0)
+            _tax_m = _m(sk_data.get("tax", 0))
 
-                # Filter out zero/near-zero
-                _components = [(n, v, c) for n, v, c in _components if abs(v) > 5]
+            if _dep_m > 0:
+                _components.append(("Amortyzacja", _dep_m, "#94a3b8"))
+            if _energy_m > 0:
+                _is_bev = (
+                    (results.get("keep_engine_type") == "BEV" and sankey_key == "keep")
+                    or sankey_key == "bev"
+                )
+                _components.append(("Prąd" if _is_bev else "Paliwo", _energy_m, "#f59e0b"))
+            if _maint_m > 0:
+                _components.append(("Serwis", _maint_m, "#ef4444"))
+            if _ins_m > 0:
+                _components.append(("Ubezpieczenie", _ins_m, "#3b82f6"))
+            if _sct_m > 0:
+                _components.append(("SCT", _sct_m, "#dc2626"))
+            if _aging_m > 0:
+                _components.append(("Naprawy", _aging_m, "#b91c1c"))
+            if _tax_m > 0:
+                _components.append(("Tarcza podat.", -_tax_m, "#22c55e"))
 
-                if _components:
-                    # Sankey: source=0 (Twój budżet) → each component
-                    _labels = [f"{_sk_name}\n{_sk_monthly:,.0f} zł/mies."] + [
-                        f"{n}\n{v:,.0f} zł" for n, v, _ in _components
-                    ]
-                    _sources = [0] * len(_components)
-                    _targets = list(range(1, len(_components) + 1))
-                    _values = [abs(v) for _, v, _ in _components]
-                    _colors = [c for _, _, c in _components]
-                    def _hex_to_rgba(h, alpha=0.5):
-                        h = h.lstrip("#")
-                        return f"rgba({int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)},{alpha})"
-                    _link_colors = [_hex_to_rgba(c) for c in _colors]
+            _components = [(n, v, c) for n, v, c in _components if abs(v) > 5]
+            if not _components:
+                return None
 
-                    fig_sankey = go.Figure(data=[go.Sankey(
-                        orientation="h",
-                        node=dict(
-                            pad=30, thickness=25,
-                            label=_labels,
-                            color=["#1e293b"] + _colors,
-                            line=dict(width=0),
-                        ),
-                        link=dict(
-                            source=_sources, target=_targets,
-                            value=_values, color=_link_colors,
-                        ),
-                    )])
-                    _sankey_h = max(400, 120 + len(_components) * 60)
-                    fig_sankey.update_layout(
-                        title=dict(
-                            text=f"Skąd się bierze {_sk_monthly:,.0f} zł/mies.?",
-                            font=dict(size=16),
-                        ),
-                        height=_sankey_h,
-                        margin=dict(t=50, b=30, l=30, r=160),
-                        font=dict(size=14, color="#e2e8f0"),
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(0,0,0,0)",
-                    )
-                    st.plotly_chart(fig_sankey, use_container_width=True)
+            _sources = [0] * len(_components)
+            _targets = list(range(1, len(_components) + 1))
+            _values = [abs(v) for _, v, _ in _components]
+            _colors = [c for _, _, c in _components]
+            _link_colors = [_hex_to_rgba(c) for c in _colors]
+
+            _node_text = [f"{sk_name}<br><b>{_sk_monthly:,.0f} zł/mies.</b>"] + [
+                f"{n}<br><b>{v:,.0f} zł</b>" for n, v, _ in _components
+            ]
+
+            fig = go.Figure(data=[go.Sankey(
+                orientation="h",
+                textfont=dict(size=13, color="#1e293b", family="Arial Black"),
+                node=dict(
+                    pad=35, thickness=28,
+                    label=_node_text,
+                    color=["#334155"] + _colors,
+                    line=dict(width=1, color="#e2e8f0"),
+                ),
+                link=dict(
+                    source=_sources, target=_targets,
+                    value=_values, color=_link_colors,
+                ),
+            )])
+            _sankey_h = max(420, 140 + len(_components) * 65)
+            fig.update_layout(
+                title=dict(
+                    text=f"Skąd się bierze {_sk_monthly:,.0f} zł/mies.?",
+                    font=dict(size=16, color="#1e293b"),
+                ),
+                height=_sankey_h,
+                margin=dict(t=50, b=30, l=10, r=180),
+                font=dict(size=13, color="#1e293b"),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
+            return fig
+
+        # Zbierz dostępne warianty do Sankey tabs
+        _sankey_variants = []  # (key, label, data)
+        _variant_order = ["keep", "bev", "hyb", "ice"]
+        _variant_emoji = {"keep": "🚗", "bev": "⚡", "hyb": "🔋", "ice": "⛽"}
+        for _vk in _variant_order:
+            if _vk in results and isinstance(results[_vk], dict) and results[_vk].get("monthly", 0) > 0:
+                _vname = results[_vk].get("name", _vk)[:25]
+                _vmonthly = results[_vk].get("monthly", 0)
+                _emoji = _variant_emoji.get(_vk, "")
+                _tab_label = f"{_emoji} {_vname} ({_vmonthly:,.0f} zł/m)"
+                _sankey_variants.append((_vk, _tab_label, results[_vk]))
+
+        if _sankey_variants:
+            st.subheader("Rozbicie kosztów miesięcznych")
+            _sankey_tabs = st.tabs([lbl for _, lbl, _ in _sankey_variants])
+            for _tab, (_vk, _lbl, _vdata) in zip(_sankey_tabs, _sankey_variants):
+                with _tab:
+                    _vname = _vdata.get("name", _vk)[:25]
+                    _fig = _build_sankey(_vk, _vdata, _vname, period)
+                    if _fig:
+                        st.plotly_chart(_fig, use_container_width=True)
+                    else:
+                        st.info("Brak danych do wykresu Sankey dla tego wariantu.")
 
         # --- Insights ---
         with st.expander("💡 Co to oznacza?", expanded=True):
@@ -3185,27 +3310,55 @@ def _render_wizard(fuel_data):
                 _aging = results["keep"].get("aging", {})
                 if _aging.get("applies"):
                     _end_age = wdata.get("car_age", 0) + period
+                    _rf = _aging.get("risk_factor", 1.0)
+                    _rf_label = (
+                        "optymistyczny" if _rf < 0.7
+                        else "ostrożny" if _rf > 1.2
+                        else "standardowy"
+                    )
                     st.warning(
                         f"⚠️ Twoje auto będzie miało **{_end_age} lat** na koniec analizy. "
                         f"Szacowane koszty nieplanowanych napraw i korozji: "
-                        f"**{_aging['total']:,.0f} zł** ({_aging['annual_avg']:,.0f} zł/rok). "
+                        f"**{_aging['total']:,.0f} zł** ({_aging['annual_avg']:,.0f} zł/rok) "
+                        f"— scenariusz **{_rf_label}** (×{_rf:.2f}). "
                         f"Im starsze auto, tym więcej niespodzianek — alternator, zawieszenie, "
                         f"układ wydechowy, uszczelki, korozja podwozia."
                     )
+                # Info o korekcie wartości rezydualnej (ryzyko)
+                _rv_delta = results["keep"].get("rv_risk_delta", 0)
+                _rv_mult = results["keep"].get("rv_risk_mult", 1.0)
+                if abs(_rv_delta) > 500:  # pokaż tylko jeśli istotne
+                    if _rv_delta > 0:
+                        st.info(
+                            f"📉 **Korekta wartości odsprzedaży** — przy scenariuszu ostrożnym "
+                            f"(×{_rv_mult:.2f}) Twoje auto będzie warte o "
+                            f"**{_rv_delta:,.0f} zł mniej** przy odsprzedaży. "
+                            f"Rynek dyskontuje auta z niepewną historią serwisową."
+                        )
+                    else:
+                        st.info(
+                            f"📈 **Bonus za zadbane auto** — przy scenariuszu optymistycznym "
+                            f"(×{_rv_mult:.2f}) Twoje auto będzie warte o "
+                            f"**{abs(_rv_delta):,.0f} zł więcej** przy odsprzedaży. "
+                            f"Zadbane auta z pełną historią serwisową trzymają wartość."
+                        )
+
                 # Info o SCT
                 _sct_city_w = wdata.get("sct_city", "Nie dotyczy")
                 if _sct_city_w in ("Warszawa", "Kraków"):
                     _sct_keep = results["keep"].get("sct", 0)
                     if _sct_keep > 0:
-                        st.info(
+                        st.warning(
                             f"🚫 **Strefa Czystego Transportu ({_sct_city_w})** — "
-                            f"Twoje auto ICE/HEV płaci ryczałt **~{_sct_keep / period:,.0f} zł/rok** "
+                            f"Twoje auto **nie spełnia norm Euro** i ma zakaz wjazdu do SCT. "
+                            f"Szacowany koszt objazdów i mandatów: **~{_sct_keep / period:,.0f} zł/rok** "
                             f"({_sct_keep:,.0f} zł w {period} lat). "
                             f"**BEV wjeżdża za darmo.**"
                         )
-                    else:
+                    elif _sct_city_w in ("Warszawa", "Kraków"):
                         st.success(
-                            f"🟢 **SCT ({_sct_city_w})** — Twój BEV wjeżdża za darmo do strefy."
+                            f"✅ **SCT ({_sct_city_w})** — Twoje auto spełnia normy Euro "
+                            f"i wjeżdża do strefy za darmo. BEV również."
                         )
                 # Info o ładowarce w pracy
                 _wch = wdata.get("work_charger", "Brak")

@@ -885,12 +885,12 @@ class TestSCT:
         assert app.SCT_FREE_ENTRIES == 4
 
     def test_sct_min_year_petrol(self):
-        """Benzyna/LPG: min rocznik 2005 (Euro 4+)."""
-        assert app.SCT_MIN_YEAR_PETROL == 2005
+        """Benzyna/LPG: min rocznik 2006 (Euro 4+)."""
+        assert app.SCT_MIN_YEAR_PETROL == 2006
 
     def test_sct_min_year_diesel(self):
-        """Diesel: min rocznik 2009 (Euro 5+)."""
-        assert app.SCT_MIN_YEAR_DIESEL == 2009
+        """Diesel: min rocznik 2014 (Euro 6+)."""
+        assert app.SCT_MIN_YEAR_DIESEL == 2014
 
     def test_sct_cities(self):
         """SCT aktywne w Warszawie i Krakowie."""
@@ -1154,14 +1154,23 @@ class TestWizardEngineTypeLogic:
         assert results["verdict"] != "hyb", "HEV owner nie powinien dostać verdict=hyb"
 
     def test_sct_increases_ice_tco(self):
-        """SCT w Warszawie podnosi TCO dla ICE."""
-        r_no_sct = app.run_wizard_analysis(self._make_wdata(), self._FUEL_DATA)
+        """SCT w Warszawie podnosi TCO dla starego diesla (>12 lat)."""
+        # Stary diesel (15 lat) → przekracza próg SCT_AGE_THRESHOLD_DIESEL=12
+        r_no_sct = app.run_wizard_analysis(
+            self._make_wdata(fuel="Diesel", car_age=15, car_value=20_000), self._FUEL_DATA)
         r_sct = app.run_wizard_analysis(
-            self._make_wdata(sct_city="Warszawa"), self._FUEL_DATA)
+            self._make_wdata(fuel="Diesel", car_age=15, car_value=20_000,
+                             sct_city="Warszawa"), self._FUEL_DATA)
         keep_no = r_no_sct["keep"]["tco_net"]
         keep_sct = r_sct["keep"]["tco_net"]
-        assert keep_sct > keep_no, "SCT powinno podnieść TCO ICE"
+        assert keep_sct > keep_no, "SCT powinno podnieść TCO starego diesla"
         assert r_sct["keep"]["sct"] > 0, "SCT koszt powinien być > 0"
+
+    def test_sct_no_cost_for_new_ice(self):
+        """Nowy ICE (5 lat benzyna) nie płaci SCT — spełnia normy Euro."""
+        r = app.run_wizard_analysis(
+            self._make_wdata(sct_city="Warszawa"), self._FUEL_DATA)
+        assert r["keep"].get("sct", 0) == 0, "Nowe auto benzyna nie powinno płacić SCT"
 
     def test_sct_bev_free(self):
         """BEV nie płaci SCT."""
@@ -1397,6 +1406,72 @@ class TestCarDatabase:
         valid_segments = set(app.CAR_SEGMENTS) | {"Van – Mały", "Van – Duży"}
         for name, p in CAR_DB.items():
             assert p["segment"] in valid_segments, f"{name}: nieznany segment '{p['segment']}'"
+
+
+class TestRiskFactor:
+    """Testy suwaka ryzyka awarii i jego wpływu na aging cost."""
+
+    def test_slider_to_factor_min(self):
+        """Slider=0 → RISK_FACTOR_MIN (0.3)."""
+        assert abs(app._risk_slider_to_factor(0) - app.RISK_FACTOR_MIN) < 0.01
+
+    def test_slider_to_factor_mid(self):
+        """Slider=50 → 1.0 (bazowy scenariusz)."""
+        assert abs(app._risk_slider_to_factor(50) - 1.0) < 0.01
+
+    def test_slider_to_factor_max(self):
+        """Slider=100 → RISK_FACTOR_MAX (1.8)."""
+        assert abs(app._risk_slider_to_factor(100) - app.RISK_FACTOR_MAX) < 0.01
+
+    def test_slider_monotonic(self):
+        """Wyższy slider → wyższy mnożnik."""
+        vals = [app._risk_slider_to_factor(i) for i in range(0, 101, 5)]
+        for i in range(1, len(vals)):
+            assert vals[i] >= vals[i - 1], f"Nie monotoniczne: {vals[i-1]} > {vals[i]}"
+
+    def test_aging_risk_factor_zero_for_new_car(self):
+        """Nowe auto (wiek=2) → aging=0 niezależnie od risk_factor."""
+        r = app.calculate_aging_cost("C – Kompakt", 2, 30_000, 15_000, 5, "ICE", risk_factor=1.8)
+        assert r["total"] == 0.0
+        assert not r["applies"]
+
+    def test_aging_risk_factor_increases_cost(self):
+        """Wyższy risk_factor → wyższy koszt starzenia."""
+        r_low = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "ICE", risk_factor=0.3)
+        r_base = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "ICE", risk_factor=1.0)
+        r_high = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "ICE", risk_factor=1.8)
+        assert r_low["total"] < r_base["total"] < r_high["total"]
+
+    def test_aging_risk_factor_proportional(self):
+        """risk_factor=2.0 → koszt 2× wyższy niż risk_factor=1.0."""
+        r1 = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "ICE", risk_factor=1.0)
+        r2 = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "ICE", risk_factor=2.0)
+        assert abs(r2["total"] - r1["total"] * 2.0) < 1.0
+
+    def test_aging_risk_factor_in_result(self):
+        """risk_factor jest zapisywany w wyniku."""
+        r = app.calculate_aging_cost("C – Kompakt", 10, 150_000, 15_000, 5, "ICE", risk_factor=1.5)
+        assert r["risk_factor"] == 1.5
+
+    def test_risk_rv_multiplier_optimist(self):
+        """Optymista (risk=0.3) → rv_mult > 1.0 (premium)."""
+        rv_mult = max(0.5, 1.0 - (0.3 - 1.0) * app.RISK_RV_SLOPE)
+        assert rv_mult > 1.0  # zadbane auto warte więcej
+
+    def test_risk_rv_multiplier_pessimist(self):
+        """Pesymista (risk=1.8) → rv_mult < 1.0 (dyskonto)."""
+        rv_mult = max(0.5, 1.0 - (1.8 - 1.0) * app.RISK_RV_SLOPE)
+        assert rv_mult < 1.0  # ryzykowne auto warte mniej
+
+    def test_risk_rv_multiplier_base(self):
+        """Bazowy (risk=1.0) → rv_mult = 1.0."""
+        rv_mult = max(0.5, 1.0 - (1.0 - 1.0) * app.RISK_RV_SLOPE)
+        assert abs(rv_mult - 1.0) < 0.001
+
+    def test_risk_rv_multiplier_floor(self):
+        """rv_mult nie spada poniżej 0.5 nawet przy ekstremalnym ryzyku."""
+        rv_mult = max(0.5, 1.0 - (5.0 - 1.0) * app.RISK_RV_SLOPE)
+        assert rv_mult == 0.5
 
 
 if __name__ == "__main__":

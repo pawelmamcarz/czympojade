@@ -6,3 +6,7 @@ enableXsrfProtection = false
 
 [browser]
 gatherUsageStats = false
+
+[ui]
+hideTopBar = false
+toolbarMode = "minimal"
