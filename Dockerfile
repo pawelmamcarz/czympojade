@@ -14,9 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # App source
 COPY . .
 
-# Streamlit config
-RUN mkdir -p /app/.streamlit
-RUN echo '[server]\nheadless = true\nenableCORS = false\nenableXsrfProtection = false\n\n[browser]\ngatherUsageStats = false' > /app/.streamlit/config.toml
+# Streamlit config (kopiowany z .streamlit/config.toml w COPY . .)
+# enableStaticServing = true umożliwia serwowanie plików z static/
 
 # Railway ustawia PORT dynamicznie — skrypt startowy go odczyta
 ENV PORT=8501
