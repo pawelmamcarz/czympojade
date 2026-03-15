@@ -709,8 +709,8 @@ AC_MAX_AGE = 8              # Powyżej 8 lat większość kierowców rezygnuje z
 # ---------------------------------------------------------------------------
 # SPP – Strefa Płatnego Parkowania (duże miasta PL)
 # Źródła: zdm.waw.pl, zikit.krakow.pl, zdm.poznan.pl, zdiz.gdansk.pl
-# Stawki 2025/2026 — pierwsza godzina / kolejne. Estymacja roczna:
-# ~220 dni roboczych × ~2h parkowania = ~440h × stawka + abonamenty
+# Stawki 2025/2026 — BAZOWE MAXIMUM (~220 dni × 2h).
+# Realne użycie: 10-50% (suwak) — nikt nie parkuje 100% roku (urlopy, HO, weekendy).
 # BEV: zwolniony z opłat parkingowych (Ustawa o elektromobilności, art. 39 ust. 1)
 # ---------------------------------------------------------------------------
 SPP_ANNUAL_COST = {
@@ -1928,12 +1928,14 @@ def run_wizard_analysis(wizard_data, fuel_data):
     # Ubezpieczenie — OC/AC toggle
     oc_only_wiz = wizard_data.get("oc_only", False)
 
-    # SPP — Strefa Płatnego Parkowania
+    # SPP — Strefa Płatnego Parkowania (z suwakiem % wykorzystania)
     spp_city = wizard_data.get("spp_city", "Brak")
     spp_resident = wizard_data.get("spp_resident", False)
+    spp_usage_pct = wizard_data.get("spp_usage_pct", 30)
     spp_annual = SPP_ANNUAL_COST.get(spp_city, 0)
     if spp_resident and spp_annual > 0:
-        spp_annual = int(spp_annual * SPP_RESIDENT_DISCOUNT)  # abonament mieszkańca
+        spp_annual = int(spp_annual * SPP_RESIDENT_DISCOUNT)
+    spp_annual = int(spp_annual * spp_usage_pct / 100)  # skaluj wg % wykorzystania
 
     # SCT: koszt zależy od wieku auta i paliwa — nowe auta wjeżdżają za darmo
     car_age_wiz = wizard_data.get("car_age", 0)
@@ -2627,6 +2629,8 @@ def _prefill_from_wizard(wdata):
     if _wiz_spp != "Brak":
         st.session_state.pop("adv_spp", None)
         st.session_state["adv_spp"] = _wiz_spp
+        st.session_state.pop("adv_spp_usage", None)
+        st.session_state["adv_spp_usage"] = wdata.get("spp_usage_pct", 30)
 
     # ---- (Z) Zachowaj surowe dane wizarda (dla banera podsumowania) ----
     st.session_state["_wizard_prefill"] = wdata
@@ -2981,6 +2985,7 @@ def _render_wizard(fuel_data):
                      "To duży koszt! BEV jest zwolniony z opłat (Ustawa o elektromobilności).",
             )
             spp_resident = False
+            spp_usage_pct = 30
             if spp_city != "Brak":
                 spp_resident = st.checkbox(
                     "Jestem mieszkańcem strefy (abonament)",
@@ -2988,11 +2993,22 @@ def _render_wizard(fuel_data):
                     key="wiz_spp_resident",
                     help="Mieszkańcy SPP płacą ryczałt ~250 zł/rok zamiast stawek godzinowych.",
                 )
-                _spp_yr = SPP_ANNUAL_COST.get(spp_city, 0)
+                spp_usage_pct = st.slider(
+                    "Jak często parkujesz w SPP?",
+                    min_value=10, max_value=50, step=5,
+                    value=wdata.get("spp_usage_pct", 30),
+                    key="wiz_spp_usage",
+                    format="%d%%",
+                    help="10% = sporadycznie (1-2 dni/tyg), 30% = regularnie (3 dni/tyg), "
+                         "50% = prawie codziennie. Nikt nie parkuje w SPP przez 100% roku "
+                         "(urlopy, praca zdalna, weekendy).",
+                )
+                _spp_base = SPP_ANNUAL_COST.get(spp_city, 0)
                 if spp_resident:
-                    _spp_yr = int(_spp_yr * SPP_RESIDENT_DISCOUNT)
+                    _spp_base = int(_spp_base * SPP_RESIDENT_DISCOUNT)
+                _spp_yr = int(_spp_base * spp_usage_pct / 100)
                 st.caption(f"Szacowany roczny koszt parkowania: **{_spp_yr:,} zł** "
-                           f"{'(abonament mieszkańca)' if spp_resident else '(stawki godzinowe)'}"
+                           f"({spp_usage_pct}% {'abonament mieszkańca' if spp_resident else 'stawek godzinowych'})"
                            f" · BEV: **0 zł** 🔋")
 
             # Ubezpieczenie — OC / OC+AC
@@ -3025,6 +3041,7 @@ def _render_wizard(fuel_data):
                 wdata["work_charger"] = work_charger
                 wdata["spp_city"] = spp_city
                 wdata["spp_resident"] = spp_resident
+                wdata["spp_usage_pct"] = spp_usage_pct
                 wdata["oc_only"] = oc_only
                 if not _has_car_now:
                     wdata["_park_no_car"] = parking
@@ -4963,6 +4980,7 @@ else:
         )
     with _adv_c3:
         adv_spp_resident = False
+        adv_spp_usage_pct = 30
         if adv_spp_city != "Brak":
             adv_spp_resident = st.checkbox(
                 "Mieszkaniec strefy (abonament)",
@@ -4970,11 +4988,21 @@ else:
                 key="adv_spp_resident",
                 help="Abonament ~250 zł/rok zamiast stawek godzinowych.",
             )
-        _adv_spp_annual = SPP_ANNUAL_COST.get(adv_spp_city, 0)
-        if adv_spp_resident and _adv_spp_annual > 0:
-            _adv_spp_annual = int(_adv_spp_annual * SPP_RESIDENT_DISCOUNT)
+            adv_spp_usage_pct = st.slider(
+                "Jak często parkujesz w SPP?",
+                min_value=10, max_value=50, step=5,
+                value=30,
+                key="adv_spp_usage",
+                format="%d%%",
+                help="10% = sporadycznie (1-2 dni/tyg), 30% = regularnie (3 dni/tyg), "
+                     "50% = prawie codziennie.",
+            )
+        _adv_spp_base = SPP_ANNUAL_COST.get(adv_spp_city, 0)
+        if adv_spp_resident and _adv_spp_base > 0:
+            _adv_spp_base = int(_adv_spp_base * SPP_RESIDENT_DISCOUNT)
+        _adv_spp_annual = int(_adv_spp_base * adv_spp_usage_pct / 100)
         if _adv_spp_annual > 0:
-            st.caption(f"Szacowany koszt: **{_adv_spp_annual:,} zł/rok** · BEV: **0 zł** 🔋")
+            st.caption(f"Szacowany koszt: **{_adv_spp_annual:,} zł/rok** ({adv_spp_usage_pct}%) · BEV: **0 zł** 🔋")
 
     st.subheader("Parametry podatkowe")
     col7, col8, col9 = st.columns(3)
