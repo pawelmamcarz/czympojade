@@ -63,27 +63,46 @@ st.set_page_config(
     layout="wide",
 )
 
-# --- Customowy CSS: ukrycie frameworkowych elementów UI + layout ---
+# --- Customowy CSS + JS: ukrycie frameworkowych elementów UI + layout ---
 st.markdown(
     """<style>
-    /* Layout: minimalizuj padding */
     .stApp > header {display: none !important;}
     .block-container {padding-top: 1rem !important; padding-bottom: 1rem !important;}
-    /* Ukryj elementy frameworkowe (footer, deploy, badges) */
     footer {display: none !important; visibility: hidden !important;}
     .stApp footer {display: none !important;}
     [data-testid="manage-app-button"] {display: none !important;}
-    #MainMenu ul li:last-child {display: none !important;}
     .stDeployButton {display: none !important;}
     div[data-testid="stToolbarActions"] > div:last-child {display: none !important;}
-    .viewerBadge_container__r5tak {display: none !important;}
-    .styles_viewerBadge__CvC9N {display: none !important;}
-    ._profileContainer_gzau3_53 {display: none !important;}
-    ._profilePreview_gzau3_63 {display: none !important;}
     [data-testid="stDecoration"] {display: none !important;}
     </style>""",
     unsafe_allow_html=True,
 )
+# JS: usuń "Made with Streamlit" z menu hamburger (CSS nie łapie w 1.55+)
+st.components.v1.html("""
+<script>
+(function hide() {
+    function remove() {
+        // Szukaj w parent document (iframe) i w bieżącym
+        [document, parent.document].forEach(function(doc) {
+            doc.querySelectorAll('a, span, li, div').forEach(function(el) {
+                if (el.textContent && el.textContent.match(/Made with Streamlit/i)) {
+                    el.style.display = 'none';
+                    if (el.parentElement && el.parentElement.tagName === 'LI') {
+                        el.parentElement.style.display = 'none';
+                    }
+                }
+            });
+        });
+    }
+    remove();
+    // Powtórz po załadowaniu menu (lazy render)
+    var observer = new MutationObserver(function() { remove(); });
+    observer.observe(parent.document.body, {childList: true, subtree: true});
+    setTimeout(remove, 2000);
+    setTimeout(remove, 5000);
+})();
+</script>
+""", height=0)
 
 # --- SEO: meta tagi, Open Graph, Twitter Card, JSON-LD ---
 _SEO_TITLE = "Kalkulator TCO CzymPojade.pl — porównaj koszty auta elektrycznego, hybrydowego i spalinowego"
