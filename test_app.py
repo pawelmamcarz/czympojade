@@ -1048,25 +1048,25 @@ class TestAgingCost:
     """Testy dla calculate_aging_cost() — koszty starzenia starych aut."""
 
     def test_new_car_no_aging(self):
-        """Nowe auto (wiek 0) — brak kosztów starzenia w 5 lat."""
-        result = app.calculate_aging_cost("C – Kompakt", 0, 0, 15_000, 5, "ICE")
+        """Nowe auto (wiek 0) — brak kosztów starzenia w 4 lata (próg=5)."""
+        result = app.calculate_aging_cost("C – Kompakt", 0, 0, 15_000, 4, "ICE")
         assert result["total"] == 0
         assert result["applies"] is False
 
     def test_young_car_no_aging(self):
-        """3-letnie auto — nadal poniżej progu 8 lat w horyzoncie 4 lat."""
-        result = app.calculate_aging_cost("C – Kompakt", 3, 45_000, 15_000, 4, "ICE")
+        """2-letnie auto — nadal poniżej progu 5 lat w horyzoncie 2 lat."""
+        result = app.calculate_aging_cost("C – Kompakt", 2, 30_000, 15_000, 2, "ICE")
         assert result["total"] == 0
         assert result["applies"] is False
 
     def test_old_car_has_aging(self):
-        """6-letnie auto, horyzont 5 lat → wiek 7-11, koszty od roku 8+."""
-        result = app.calculate_aging_cost("C – Kompakt", 6, 90_000, 15_000, 5, "ICE")
+        """3-letnie auto, horyzont 5 lat → wiek 4-8, koszty od roku 5+."""
+        result = app.calculate_aging_cost("C – Kompakt", 3, 45_000, 15_000, 5, "ICE")
         assert result["total"] > 0
         assert result["applies"] is True
-        # Rok 1: wiek 7 (<8) = 0, Rok 2: wiek 8 (>=8) > 0
-        assert result["yearly"][0] == 0   # wiek 7
-        assert result["yearly"][1] > 0    # wiek 8
+        # Rok 1: wiek 4 (<5) = 0, Rok 2: wiek 5 (>=5) > 0
+        assert result["yearly"][0] == 0   # wiek 4
+        assert result["yearly"][1] > 0    # wiek 5
 
     def test_very_old_car_high_cost(self):
         """10-letnie auto — koszty od pierwszego roku, rosnące."""
@@ -1430,8 +1430,8 @@ class TestRiskFactor:
             assert vals[i] >= vals[i - 1], f"Nie monotoniczne: {vals[i-1]} > {vals[i]}"
 
     def test_aging_risk_factor_zero_for_new_car(self):
-        """Nowe auto (wiek=2) → aging=0 niezależnie od risk_factor."""
-        r = app.calculate_aging_cost("C – Kompakt", 2, 30_000, 15_000, 5, "ICE", risk_factor=1.8)
+        """Nowe auto (wiek=0, horyzont 4 lata) → aging=0 niezależnie od risk_factor."""
+        r = app.calculate_aging_cost("C – Kompakt", 0, 0, 15_000, 4, "ICE", risk_factor=1.8)
         assert r["total"] == 0.0
         assert not r["applies"]
 
