@@ -988,7 +988,7 @@ class TestTCOQuickLPG:
 
 class TestVersion23:
     def test_version_23(self):
-        assert app.APP_VERSION == "23.6"
+        assert app.APP_VERSION == "23.7"
 
 
 class TestBudgetBeaters:
@@ -1150,6 +1150,31 @@ class TestWizardEngineTypeLogic:
         """HEV owner: verdict nigdy nie powinien być 'hyb'."""
         results = app.run_wizard_analysis(self._make_wdata(fuel="Hybryda"), self._FUEL_DATA)
         assert results["verdict"] != "hyb", "HEV owner nie powinien dostać verdict=hyb"
+
+    def test_sct_increases_ice_tco(self):
+        """SCT w Warszawie podnosi TCO dla ICE."""
+        r_no_sct = app.run_wizard_analysis(self._make_wdata(), self._FUEL_DATA)
+        r_sct = app.run_wizard_analysis(
+            self._make_wdata(sct_city="Warszawa"), self._FUEL_DATA)
+        keep_no = r_no_sct["keep"]["tco_net"]
+        keep_sct = r_sct["keep"]["tco_net"]
+        assert keep_sct > keep_no, "SCT powinno podnieść TCO ICE"
+        assert r_sct["keep"]["sct"] > 0, "SCT koszt powinien być > 0"
+
+    def test_sct_bev_free(self):
+        """BEV nie płaci SCT."""
+        r = app.run_wizard_analysis(
+            self._make_wdata(fuel="Elektryczny", sct_city="Kraków"), self._FUEL_DATA)
+        assert r["keep"].get("sct", 0) == 0, "BEV nie powinien mieć kosztu SCT"
+
+    def test_work_charger_free_lowers_bev_tco(self):
+        """Darmowa ładowarka w pracy obniża koszt energii BEV."""
+        r_no = app.run_wizard_analysis(self._make_wdata(), self._FUEL_DATA)
+        r_wc = app.run_wizard_analysis(
+            self._make_wdata(work_charger="Darmowa"), self._FUEL_DATA)
+        # BEV alternatywa powinna być tańsza z ładowarką w pracy
+        if "bev" in r_no and "bev" in r_wc:
+            assert r_wc["bev"]["energy"] <= r_no["bev"]["energy"]
 
 
 class TestEstimateCarValue:

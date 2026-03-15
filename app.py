@@ -2,7 +2,7 @@
 # z optymalizacją harmonogramu ładowania HiGHS.
 # Narzędzie edukacyjne i analityczne uświadamiające ukryte koszty posiadania aut.
 
-APP_VERSION = "23.6"
+APP_VERSION = "23.7"
 
 import math
 import re
@@ -451,6 +451,17 @@ SCT_MIN_YEAR_PETROL = 2005      # Euro 4+ (benzyna / LPG)
 SCT_MIN_YEAR_DIESEL = 2009      # Euro 5+ (diesel)
 SCT_CITIES = ["Warszawa", "Kraków"]  # Aktywne SCT w 2026
 # BEV / PHEV (tryb EV) – zawsze uprawnione do wjazdu
+# Szacowany roczny koszt SCT dla ICE niespełniającego norm (wjazdy do centrum)
+SCT_ANNUAL_COST_PROFILES = {
+    "Codziennie dojeżdżam": 20 * 12,  # 20 wjazdów/mies × 12 mies = 240 wjazdów
+    "Kilka razy w tygodniu": 10 * 12,  # 120 wjazdów
+    "Kilka razy w miesiącu": 4 * 12,   # 48 wjazdów
+}
+# Koszt per wjazd = mandat 500 zł, ale w praktyce kupuje się naklejkę (ryczałt).
+# Ryczałt roczny szacowany na ~1200-2500 zł dla aut starszych.
+SCT_ANNUAL_FEE_ICE = 1_800  # Średni roczny koszt (ryczałt / naklejka)
+# Ładowarka w pracy — domyślna cena za kWh
+WORK_CHARGER_PRICE_DEFAULT = 1.50  # zł/kWh
 
 # ---------------------------------------------------------------------------
 # POBIERANIE CEN PALIW Z E-PETROL.PL
@@ -1614,6 +1625,23 @@ def run_wizard_analysis(wizard_data, fuel_data):
     pv_kwp = 5.0 if has_pv else 0.0
     bess_kwh = 0.0
 
+    # SCT — Strefa Czystego Transportu
+    sct_city = wizard_data.get("sct_city", "Nie dotyczy")
+    sct_applies = sct_city in ("Warszawa", "Kraków")
+    sct_annual_ice = SCT_ANNUAL_FEE_ICE if sct_applies else 0  # ICE/HEV starsze płacą
+
+    # Ładowarka w pracy
+    _work_ch = wizard_data.get("work_charger", "Brak")
+    if _work_ch == "Darmowa":
+        work_charger_pct = 0.40  # 40% ładowania w pracy
+        work_charger_price = 0.0
+    elif _work_ch.startswith("Płatna"):
+        work_charger_pct = 0.40
+        work_charger_price = WORK_CHARGER_PRICE_DEFAULT
+    else:
+        work_charger_pct = 0.0
+        work_charger_price = 0.0
+
     results = {}
 
     if wizard_data.get("has_car", False):
@@ -1660,6 +1688,9 @@ def run_wizard_analysis(wizard_data, fuel_data):
             fuel_type_idx=fuel_type_idx,
             pb95_price=fuel_data["pb95"] if fuel_type_idx == 2 else 0,
             use_tax=False,
+            sct_annual_cost=sct_annual_ice if engine_type not in ("BEV", "PHEV") else 0,
+            work_charger_pct=work_charger_pct if engine_type == "BEV" else 0,
+            work_charger_price=work_charger_price,
         )
         r_keep = calculate_tco_quick(**keep_kw)
 
@@ -1700,6 +1731,9 @@ def run_wizard_analysis(wizard_data, fuel_data):
                     has_home_charger=has_garage,
                     has_dynamic_tariff=has_garage and has_pv,
                     use_tax=False,
+                    sct_annual_cost=0,  # BEV zawsze free w SCT
+                    work_charger_pct=work_charger_pct,
+                    work_charger_price=work_charger_price,
                 )
                 r_bev_adj = dict(r_bev)
                 r_bev_adj["tco_net"] = r_bev["tco_net"] - car_value
@@ -1726,6 +1760,7 @@ def run_wizard_analysis(wizard_data, fuel_data):
                     has_dynamic_tariff=(has_garage and has_pv) if hyb_etype == "PHEV" else False,
                     elec_pct=hyb_elec,
                     use_tax=False,
+                    sct_annual_cost=sct_annual_ice,  # HEV płaci SCT jak ICE
                 )
                 r_hyb_adj = dict(r_hyb)
                 r_hyb_adj["tco_net"] = r_hyb["tco_net"] - car_value
@@ -1746,6 +1781,7 @@ def run_wizard_analysis(wizard_data, fuel_data):
                     fuel_type_idx=ice_p.get("fuel", 0),
                     pb95_price=fuel_data["pb95"] if ice_p.get("fuel", 0) == 2 else 0,
                     use_tax=False,
+                    sct_annual_cost=sct_annual_ice,
                 )
                 r_ice_adj = dict(r_ice)
                 r_ice_adj["tco_net"] = r_ice["tco_net"] - car_value
@@ -1985,6 +2021,9 @@ def calculate_tco_quick(
     pb95_price=0,  # Cena benzyny (dla LPG dual-fuel)
     has_submeter=False,  # Podlicznik EV
     has_price_cap=False,  # Tarcza cenowa
+    sct_annual_cost=0,   # Roczny koszt SCT (Strefa Czystego Transportu)
+    work_charger_pct=0,  # % ładowania w pracy (0-1)
+    work_charger_price=0,  # Cena kWh ładowarki w pracy (0 = darmowa)
 ) -> dict:
     """Szybkie obliczenie TCO dla optymalizatora (HiGHS LP wewnątrz dla BEV/PHEV)."""
     seg = price_to_segment(vehicle_price)
@@ -2007,11 +2046,21 @@ def calculate_tco_quick(
         fa = fa_fuel + ch_e["total_cost"]
     else:  # BEV
         dem, _ = calc_annual_consumption_bev(city_kwh, highway_kwh, road_split, mkm)
-        ch = optimize_charging(dem, battery_cap, pv_kwp, bess_kwh,
-                               has_home_charger, has_dynamic_tariff, has_old_pv,
-                               suc_distance, annual_mileage,
-                               has_submeter=has_submeter, has_price_cap=has_price_cap)
-        fa = ch["total_cost"]
+        # Workplace charger: odejmij % ładowania w pracy od optimize_charging
+        if work_charger_pct > 0:
+            work_kwh = dem * work_charger_pct
+            dem_remaining = dem * (1 - work_charger_pct)
+            ch = optimize_charging(dem_remaining, battery_cap, pv_kwp, bess_kwh,
+                                   has_home_charger, has_dynamic_tariff, has_old_pv,
+                                   suc_distance, annual_mileage * (1 - work_charger_pct),
+                                   has_submeter=has_submeter, has_price_cap=has_price_cap)
+            fa = ch["total_cost"] + work_kwh * work_charger_price
+        else:
+            ch = optimize_charging(dem, battery_cap, pv_kwp, bess_kwh,
+                                   has_home_charger, has_dynamic_tariff, has_old_pv,
+                                   suc_distance, annual_mileage,
+                                   has_submeter=has_submeter, has_price_cap=has_price_cap)
+            fa = ch["total_cost"]
     et = fa * period_years
     mt = calculate_maintenance_cost(seg, total_km, engine_type, is_new,
                                     fuel_type_idx=fuel_type_idx, period_years=period_years)["total"]
@@ -2023,13 +2072,15 @@ def calculate_tco_quick(
     tx = tx_data["total"] if tx_data else 0
     dep = calculate_depreciation(vehicle_price, seg, period_years, engine_type, is_new)
     rv = vehicle_price - dep  # residual value
+    sct_total = sct_annual_cost * period_years
     acquisition = leasing["total_cashflow_brutto"] if leasing else vehicle_price
-    tco = acquisition + et + mt + ins - tx
+    tco = acquisition + et + mt + ins + sct_total - tx
     tco_net = tco - rv  # TCO netto = koszt po odzyskaniu RV
     return {"tco": tco, "tco_net": tco_net, "rv": rv,
             "per_km": tco_net / total_km if total_km > 0 else 0,
             "monthly": tco_net / (period_years * 12), "energy": et,
-            "maint": mt, "ins": ins, "tax": tx, "dep": dep}
+            "maint": mt, "ins": ins, "tax": tx, "dep": dep,
+            "sct": sct_total}
 
 
 # ===========================================================================
@@ -2423,6 +2474,15 @@ def _render_wizard(fuel_data):
                 index=["Tak", "Nie", "Planuję"].index(wdata.get("pv_choice", "Nie")),
                 key="wiz_pv",
             )
+            _work_charger_opts = ["Brak", "Darmowa", "Płatna (~1,50 zł/kWh)"]
+            _work_default = wdata.get("work_charger", "Brak")
+            work_charger = st.radio(
+                "Ładowarka w pracy?",
+                _work_charger_opts,
+                index=_work_charger_opts.index(_work_default) if _work_default in _work_charger_opts else 0,
+                key="wiz_work_charger",
+                help="Jeśli możesz ładować BEV w pracy — to znacząco obniża koszty prądu.",
+            )
         with col_b:
             _road_keys = list(WIZARD_ROAD_SPLITS.keys())
             # Dla osób bez auta domyślnie "Po mieście"
@@ -2433,6 +2493,16 @@ def _render_wizard(fuel_data):
                 _road_keys,
                 index=_road_keys.index(_style_default) if _style_default in _road_keys else 0,
                 key="wiz_style",
+            )
+            _sct_opts = ["Nie dotyczy", "Warszawa", "Kraków"]
+            _sct_default = wdata.get("sct_city", "Nie dotyczy")
+            sct_city = st.radio(
+                "Jeździsz w Strefie Czystego Transportu?",
+                _sct_opts,
+                index=_sct_opts.index(_sct_default) if _sct_default in _sct_opts else 0,
+                key="wiz_sct",
+                help="W Warszawie i Krakowie obowiązuje SCT — stare auta ICE "
+                     "płacą mandat/ryczałt. BEV wjeżdża za darmo.",
             )
 
         nav_c1, nav_c2 = st.columns(2)
@@ -2446,6 +2516,8 @@ def _render_wizard(fuel_data):
                 wdata["has_pv"] = pv_choice == "Tak"
                 wdata["pv_choice"] = pv_choice
                 wdata["driving_style"] = driving_style
+                wdata["sct_city"] = sct_city
+                wdata["work_charger"] = work_charger
                 if not _has_car_now:
                     wdata["_park_no_car"] = parking
                 st.session_state["wizard_data"] = wdata
@@ -2603,12 +2675,21 @@ def _render_wizard(fuel_data):
                 if "ice" in results and has_car:
                     _scenarios.append(("🔴 Spalinowy", results["ice"]))
 
+                # SCT widoczne w rozbicia tylko gdy ktoś wybrał miasto SCT
+                _has_sct = any(
+                    _s_data.get("sct", 0) > 0
+                    for _, _s_data in _scenarios
+                )
                 _cost_rows = [
                     ("Amortyzacja (utrata wartości)", "dep"),
                     ("Paliwo / prąd", "energy"),
                     ("Serwis i naprawy", "maint"),
                     ("Ubezpieczenie (OC+AC)", "ins"),
                     ("Starzenie (nieplan. naprawy)", "_aging_total"),
+                ]
+                if _has_sct:
+                    _cost_rows.append(("SCT (Strefa Czystego Transportu)", "sct"))
+                _cost_rows += [
                     ("Tarcza podatkowa", "_tax_neg"),
                     ("RAZEM (TCO netto)", "tco_net"),
                 ]
@@ -2886,6 +2967,29 @@ def _render_wizard(fuel_data):
                         f"**{_aging['total']:,.0f} zł** ({_aging['annual_avg']:,.0f} zł/rok). "
                         f"Im starsze auto, tym więcej niespodzianek — alternator, zawieszenie, "
                         f"układ wydechowy, uszczelki, korozja podwozia."
+                    )
+                # Info o SCT
+                _sct_city_w = wdata.get("sct_city", "Nie dotyczy")
+                if _sct_city_w in ("Warszawa", "Kraków"):
+                    _sct_keep = results["keep"].get("sct", 0)
+                    if _sct_keep > 0:
+                        st.info(
+                            f"🚫 **Strefa Czystego Transportu ({_sct_city_w})** — "
+                            f"Twoje auto ICE/HEV płaci ryczałt **~{_sct_keep / period:,.0f} zł/rok** "
+                            f"({_sct_keep:,.0f} zł w {period} lat). "
+                            f"**BEV wjeżdża za darmo.**"
+                        )
+                    else:
+                        st.success(
+                            f"🟢 **SCT ({_sct_city_w})** — Twój BEV wjeżdża za darmo do strefy."
+                        )
+                # Info o ładowarce w pracy
+                _wch = wdata.get("work_charger", "Brak")
+                if _wch != "Brak" and "bev" in results:
+                    _wch_label = "darmowa" if _wch == "Darmowa" else f"za {WORK_CHARGER_PRICE_DEFAULT} zł/kWh"
+                    st.info(
+                        f"🔌 **Ładowarka w pracy** ({_wch_label}) — ~40% ładowania BEV w pracy "
+                        f"obniża Twoje koszty energii."
                     )
             elif not has_car:
                 if verdict == "no_car":
