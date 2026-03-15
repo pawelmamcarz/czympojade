@@ -300,52 +300,87 @@ if _wiz_step == 0:
         unsafe_allow_html=True,
     )
 
-    # Feature boxes — co system potrafi
-    _feature_box_style = (
-        "background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; "
-        "padding: 20px 16px; text-align: center; flex: 1; min-width: 180px;"
-    )
+    # Feature boxes — rozwijane z detalami jak liczymy
+    _fc1, _fc2, _fc3 = st.columns(3)
+    with _fc1:
+        with st.expander("⚡ vs ⛽ **Elektryk vs spalinowy**"):
+            st.markdown(
+                "Porównujemy **BEV, hybrydę (HEV/PHEV) i spalinowy (ICE)** na identycznych "
+                "parametrach: Twój przebieg, styl jazdy, ceny paliw.\n\n"
+                "**Jak liczymy:**\n"
+                "- Zużycie energii/paliwa: osobno miasto, trasa, autostrada (kWh/100km lub l/100km)\n"
+                "- BEV: optymalizacja ładowania solverem HiGHS (dom, praca, DC, PV)\n"
+                "- Ceny paliw pobierane na żywo z e-petrol.pl\n"
+                "- Prąd: taryfa G11, G12w, dynamiczna RDN lub darmowe PV"
+            )
+    with _fc2:
+        with st.expander("📉 **Ukryte koszty posiadania**"):
+            st.markdown(
+                "Paliwo to **tylko 30-40%** kosztów auta. Resztę zjada:\n\n"
+                "- **Amortyzacja** — krzywa deprecjacji per model (dane AAA AUTO / Otomoto)\n"
+                "- **Serwis** — zł/km wg segmentu, BEV 60-80% taniej niż ICE\n"
+                "- **Ubezpieczenie** — OC+AC estymacja wg ceny i napędu\n"
+                "- **Naprawy starzeniowe** — progresywne od 8. roku życia auta "
+                "(alternator, zawieszenie, korozja podwozia)\n"
+                "- **Suwak ryzyka** — sam oceniasz stan auta (×0.3 optymista → ×1.8 pesymista)"
+            )
+    with _fc3:
+        with st.expander("🔋 **PV + magazyn energii**"):
+            st.markdown(
+                "Jeśli masz **fotowoltaikę** — BEV ładujesz prawie za darmo.\n\n"
+                "**Co uwzględniamy:**\n"
+                "- Instalacja PV: profil produkcji godzinowy (dane PVGIS)\n"
+                "- Magazyn energii (BESS): buforowanie taniej energii na noc\n"
+                "- Taryfa dynamiczna RDN: ładowanie w godzinach ujemnych cen\n"
+                "- Ładowarka w pracy (darmowa lub płatna)\n"
+                "- Solver LP (HiGHS) optymalizuje mix źródeł ładowania"
+            )
+
+    _fc4, _fc5, _fc6 = st.columns(3)
+    with _fc4:
+        with st.expander("🏛️ **Tarcza podatkowa**"):
+            st.markdown(
+                "Dla **firm i JDG** — auto to koszt uzyskania przychodu.\n\n"
+                "**Limity amortyzacji 2026:**\n"
+                "- BEV: **225 000 zł** (pełne odliczenie VAT)\n"
+                "- PHEV: **150 000 zł**\n"
+                "- ICE: **150 000 zł** (50% VAT)\n\n"
+                "Liczymy: amortyzacja + paliwo/prąd + ubezpieczenie × stawka CIT/PIT. "
+                "Leasing operacyjny i finansowy z ratami i wykupem."
+            )
+    with _fc5:
+        with st.expander("🚫 **Strefy Czystego Transportu**"):
+            st.markdown(
+                "Od 2024/2026 w **Warszawie i Krakowie** obowiązuje SCT.\n\n"
+                "**Kto ma zakaz wjazdu:**\n"
+                "- Benzyna/LPG: starsze niż 20 lat (prod. przed 2006, Euro <4)\n"
+                "- Diesel: starszy niż 12 lat (prod. przed 2014, Euro <6)\n"
+                "- BEV/PHEV: **zawsze za darmo**\n\n"
+                "Mandat: **500 zł** za każdy wjazd. "
+                "Szacujemy roczny koszt objazdów i mandatów: ~3 600 zł/rok."
+            )
+    with _fc6:
+        with st.expander("🌡️ **Wpływ temperatury na BEV**"):
+            st.markdown(
+                "Zimą BEV zużywa **20-40% więcej** energii (ogrzewanie kabiny, bateria).\n\n"
+                "**Nasz model:**\n"
+                "- Profil temperaturowy: średnia polska (Warszawa)\n"
+                "- Pompa ciepła: zmniejsza stratę zimową o ~30%\n"
+                "- Precondition: podgrzewanie na kablu obniża zużycie\n"
+                "- Wynik: realny koszt prądu w skali roku, nie laboratoryjny WLTP"
+            )
+
     st.markdown(
-        f"""<div style="
-            display: flex; gap: 16px; flex-wrap: wrap;
-            padding: 12px 0 8px 0;
-        ">
-            <div style="{_feature_box_style}">
-                <div style="font-size: 1.6rem; margin-bottom: 6px;">⚡ vs ⛽</div>
-                <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;">Elektryk vs spalinowy</div>
-                <div style="font-size: 0.8rem; color: #64748b;">Porównaj BEV, hybrydę i ICE na Twoich parametrach jazdy</div>
-            </div>
-            <div style="{_feature_box_style}">
-                <div style="font-size: 1.6rem; margin-bottom: 6px;">📉</div>
-                <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;">Ukryte koszty</div>
-                <div style="font-size: 0.8rem; color: #64748b;">Amortyzacja, naprawy, ubezpieczenie — wszystko w jednym miejscu</div>
-            </div>
-            <div style="{_feature_box_style}">
-                <div style="font-size: 1.6rem; margin-bottom: 6px;">🔋</div>
-                <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;">PV + magazyn energii</div>
-                <div style="font-size: 0.8rem; color: #64748b;">Uwzględniamy fotowoltaikę, taryfy dynamiczne RDN i ładowanie w pracy</div>
-            </div>
-            <div style="{_feature_box_style}">
-                <div style="font-size: 1.6rem; margin-bottom: 6px;">🏛️</div>
-                <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;">Tarcza podatkowa</div>
-                <div style="font-size: 0.8rem; color: #64748b;">Leasing, amortyzacja, limit 150k/225k — dla firm i JDG</div>
-            </div>
-            <div style="{_feature_box_style}">
-                <div style="font-size: 1.6rem; margin-bottom: 6px;">🚫</div>
-                <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;">Strefy Czystego Transportu</div>
-                <div style="font-size: 0.8rem; color: #64748b;">Warszawa i Kraków — sprawdź czy Twoje auto ma zakaz wjazdu</div>
-            </div>
-        </div>
-        <div style="
+        """<div style="
             display: flex; gap: 20px; flex-wrap: wrap;
             justify-content: center;
-            padding: 16px 0 8px 0;
+            padding: 8px 0 4px 0;
             font-size: 0.8rem; color: #94a3b8;
         ">
             <span>📊 Dane rynkowe 2025/2026</span>
             <span>⛽ Ceny paliw na żywo</span>
-            <span>🌡️ Wpływ temperatury na BEV</span>
-            <span>🇵🇱 Rynek polski</span>
+            <span>🌡️ Profil temperatury PL</span>
+            <span>🇵🇱 150+ modeli aut</span>
         </div>""",
         unsafe_allow_html=True,
     )
