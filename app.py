@@ -207,67 +207,104 @@ parent.document.title = "{_SEO_TITLE}";
 if _HAS_ANALYTICS:
     sta.start_tracking(save_to_json="analytics.json")
 
-_col_title, _col_home = st.columns([9, 1])
-with _col_title:
-    st.title("Czym pojadę w 2026 — zmieniać czy kupić nowe? Jakie?")
-with _col_home:
-    if st.session_state.get("wizard_step", 0) > 0:
-        st.markdown("")  # spacer — wyrównanie z tytułem
-        if st.button("🏠 Start", key="home_btn", help="Wróć do początku wizarda"):
+_APP_LANG = getattr(__import__("os"), "environ", {}).get("APP_LANG", "pl")
+
+# ---------------------------------------------------------------------------
+# HERO SECTION — landing page
+# Pokazuje się TYLKO na stronie startowej wizarda (step 0).
+# W pozostałych krokach: kompaktowy header z przyciskiem Home.
+# ---------------------------------------------------------------------------
+_wiz_step = st.session_state.get("wizard_step", 0)
+
+if _wiz_step == 0:
+    # ── HERO: pełna strona powitalna ──
+    st.markdown(
+        """<div style="
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+            border-radius: 16px;
+            padding: 48px 40px 36px 40px;
+            margin: -1rem -1rem 1.5rem -1rem;
+            color: white;
+        ">
+            <div style="font-size: 2.6rem; font-weight: 800; line-height: 1.15; margin-bottom: 12px;">
+                Ile <span style="color:#3b82f6">naprawdę</span> kosztuje<br>Twoje auto?
+            </div>
+            <div style="font-size: 1.15rem; color: #94a3b8; margin-bottom: 24px; max-width: 640px;">
+                Większość kierowców nie zna pełnego kosztu swojego samochodu.
+                Paliwo to dopiero początek — dochodzi amortyzacja, serwis, ubezpieczenie, naprawy…
+                <br><b style="color:#e2e8f0">Policz TCO i sprawdź, czy Twoje auto to dobry deal.</b>
+            </div>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; align-items: center;">
+                <div style="
+                    background: rgba(59,130,246,0.15);
+                    border: 1px solid rgba(59,130,246,0.3);
+                    border-radius: 10px;
+                    padding: 14px 20px;
+                    text-align: center;
+                    min-width: 140px;
+                ">
+                    <div style="font-size: 1.8rem; font-weight: 700; color: #3b82f6;">150+</div>
+                    <div style="font-size: 0.8rem; color: #94a3b8;">modeli aut w bazie</div>
+                </div>
+                <div style="
+                    background: rgba(34,197,94,0.15);
+                    border: 1px solid rgba(34,197,94,0.3);
+                    border-radius: 10px;
+                    padding: 14px 20px;
+                    text-align: center;
+                    min-width: 140px;
+                ">
+                    <div style="font-size: 1.8rem; font-weight: 700; color: #22c55e;">2 min</div>
+                    <div style="font-size: 0.8rem; color: #94a3b8;">czas analizy</div>
+                </div>
+                <div style="
+                    background: rgba(245,158,11,0.15);
+                    border: 1px solid rgba(245,158,11,0.3);
+                    border-radius: 10px;
+                    padding: 14px 20px;
+                    text-align: center;
+                    min-width: 140px;
+                ">
+                    <div style="font-size: 1.8rem; font-weight: 700; color: #f59e0b;">3</div>
+                    <div style="font-size: 0.8rem; color: #94a3b8;">scenariusze TCO</div>
+                </div>
+            </div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    # Social proof / trust badges
+    st.markdown(
+        """<div style="
+            display: flex; gap: 24px; flex-wrap: wrap;
+            justify-content: center;
+            padding: 8px 0 16px 0;
+            font-size: 0.85rem; color: #64748b;
+        ">
+            <span>📊 Dane rynkowe 2025/2026</span>
+            <span>⛽ Bieżące ceny paliw (e-petrol)</span>
+            <span>⚡ Taryfy dynamiczne RDN</span>
+            <span>🏛️ Tarcza podatkowa 2026</span>
+            <span>🌡️ Wpływ temperatury na BEV</span>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+else:
+    # ── KOMPAKTOWY HEADER dla kroków 1-3+ ──
+    _col_title, _col_home = st.columns([9, 1])
+    with _col_title:
+        st.markdown(
+            "<div style='font-size:1.1rem; color:#64748b; margin-bottom:-8px;'>"
+            "⚡ <b>CzymPojade.pl</b> — kalkulator TCO</div>",
+            unsafe_allow_html=True,
+        )
+    with _col_home:
+        if st.button("🏠 Start", key="home_btn", help="Wróć do początku"):
             st.session_state["wizard_step"] = 0
             st.session_state["wizard_data"] = {}
             st.session_state["wizard_results"] = None
             st.rerun()
-# ---------------------------------------------------------------------------
-# Nawigacja językowa + roadmap EU
-# ---------------------------------------------------------------------------
-_APP_LANG = getattr(__import__("os"), "environ", {}).get("APP_LANG", "pl")
-
-# Pasek krajów: aktywny + wkrótce  (czysty HTML — bez Markdown **bold** ani [link](url))
-_EU_ROADMAP_PL = (
-    "🌍 <b>Dostępne teraz:</b> &nbsp;"
-    "🇵🇱&nbsp;<a href='https://czympojade.pl' style='color:#888'>Polska</a>"
-    "&emsp;|&emsp;"
-    "<b>Wkrótce:</b> &nbsp;"
-    "🇩🇪 Niemcy &nbsp;·&nbsp; "
-    "🇫🇷 Francja &nbsp;·&nbsp; 🇳🇱 Holandia &nbsp;·&nbsp; 🇨🇿 Czechy "
-    "&nbsp;·&nbsp; 🇦🇹 Austria &nbsp;·&nbsp; 🇸🇪 Szwecja &nbsp;·&nbsp; ···"
-)
-_EU_ROADMAP_DE = (
-    "🌍 <b>Verfügbar:</b> &nbsp;"
-    "🇩🇪&nbsp;<a href='#' style='color:#888'>Deutschland</a> <i>(bald)</i>"
-    "&nbsp;·&nbsp;"
-    "🇵🇱&nbsp;<a href='https://czympojade.pl' style='color:#888'>Polen</a>"
-    "&emsp;|&emsp;"
-    "<b>Bald für ganz EU:</b> &nbsp;"
-    "🇫🇷 Frankreich &nbsp;·&nbsp; 🇳🇱 Niederlande &nbsp;·&nbsp; 🇨🇿 Tschechien "
-    "&nbsp;·&nbsp; 🇦🇹 Österreich &nbsp;·&nbsp; 🇸🇪 Schweden &nbsp;·&nbsp; ···"
-)
-
-if _APP_LANG == "pl":
-    st.markdown(
-        f"<div style='font-size:0.82rem; color:#888; margin-bottom:4px'>{_EU_ROADMAP_PL}</div>",
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "Porównanie pełnych kosztów posiadania (TCO) auta elektrycznego, hybrydowego i spalinowego. "
-        "Dane rynkowe 2025/2026, bieżące ceny paliw, taryfy dynamiczne RDN, "
-        "tarcza podatkowa 2026 i wpływ temperatury na zużycie."
-    )
-else:
-    st.markdown(
-        f"<div style='font-size:0.82rem; color:#888; margin-bottom:4px'>{_EU_ROADMAP_DE}</div>",
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "Vollkostenvergleich (TCO) für Elektro-, Hybrid- und Verbrennerfahrzeuge. "
-        "Aktuelle DE-Marktpreise 2025/2026, SMARD-Strompreise, Kfz-Steuer, Dienstwagen-Besteuerung."
-    )
-with st.expander("📊 Infografika — dlaczego musisz policzyć TCO w 2026?", expanded=False):
-    try:
-        st.image("infografika.png", use_container_width=True)
-    except Exception:
-        st.info("Plik infografika.png nie został znaleziony w katalogu aplikacji.")
 
 # ---------------------------------------------------------------------------
 # SEGMENTY RYNKOWE – dane CEPiK / AAA AUTO / autoDNA 2025
@@ -2456,27 +2493,50 @@ def _render_wizard(fuel_data):
 
     # ----- KROK 0: Profil -----
     if step == 0:
-        st.header("Kim jesteś?")
-        st.markdown("Odpowiedz na kilka prostych pytań, a pokażemy Ci, jakie auto się opłaca.")
+        st.markdown(
+            "<h2 style='margin-bottom:4px'>Wybierz swój profil</h2>"
+            "<p style='color:#64748b; margin-top:0'>Odpowiedz na 3 pytania — "
+            "dostaniesz spersonalizowaną rekomendację w 2 minuty.</p>",
+            unsafe_allow_html=True,
+        )
 
         _wiz_labels = [WIZARD_PROFILES[i]["label"] for i in range(6)]
-        _wiz_pick = st.radio(
-            "Najlepiej opisuje mnie:",
-            _wiz_labels,
-            index=wdata.get("profile_id", 0),
-            key="wiz_profile",
-        )
-        _wiz_id = _wiz_labels.index(_wiz_pick)
-        st.caption(WIZARD_PROFILES[_wiz_id]["desc"])
+        _wiz_descs = [WIZARD_PROFILES[i]["desc"] for i in range(6)]
 
-        if st.button("Dalej →", key="wiz_next_0", type="primary"):
-            wdata["profile_id"] = _wiz_id
-            # Ustaw domyślne km z profilu
-            _pdef = _PROFILE_DEFAULTS[_wiz_id]
-            wdata.setdefault("monthly_km", _pdef["mileage"] // 12)
-            st.session_state["wizard_data"] = wdata
-            st.session_state["wizard_step"] = 1
-            st.rerun()
+        # Karty profilów w 2 rzędach × 3 kolumny
+        _selected_id = wdata.get("profile_id", 0)
+        for row_start in (0, 3):
+            cols = st.columns(3)
+            for j, col in enumerate(cols):
+                idx = row_start + j
+                if idx >= len(_wiz_labels):
+                    break
+                with col:
+                    _is_selected = idx == _selected_id
+                    _border_color = "#3b82f6" if _is_selected else "#334155"
+                    _bg = "rgba(59,130,246,0.08)" if _is_selected else "transparent"
+                    if st.button(
+                        _wiz_labels[idx],
+                        key=f"wiz_profile_{idx}",
+                        use_container_width=True,
+                        type="primary" if _is_selected else "secondary",
+                    ):
+                        wdata["profile_id"] = idx
+                        _pdef = _PROFILE_DEFAULTS[idx]
+                        wdata.setdefault("monthly_km", _pdef["mileage"] // 12)
+                        st.session_state["wizard_data"] = wdata
+                        st.session_state["wizard_step"] = 1
+                        st.rerun()
+
+        # Opis wybranego profilu
+        st.info(f"**{_wiz_labels[_selected_id]}** — {_wiz_descs[_selected_id]}")
+
+        st.markdown("---")
+        st.markdown(
+            "<p style='text-align:center; color:#94a3b8; font-size:0.85rem'>"
+            "Kliknij swój profil powyżej aby rozpocząć analizę</p>",
+            unsafe_allow_html=True,
+        )
 
     # ----- KROK 1: Masz auto? -----
     elif step == 1:
@@ -4911,23 +4971,23 @@ else:
         _sct_risk = False
         _sct_fuel = "benzyna/LPG" if fuel_type_idx != 1 else "diesel"
         _sct_min_year = SCT_MIN_YEAR_PETROL if fuel_type_idx != 1 else SCT_MIN_YEAR_DIESEL
-        # Heurystyka: tani używany ICE (< 50k zł) = prawdopodobnie starszy niż limity SCT
         _year_match = re.search(r'20[0-2]\d', ice_model)
         _ice_year = int(_year_match.group()) if _year_match else None
         if _ice_year and _ice_year < _sct_min_year:
             _sct_risk = True
         elif not _ice_year and not is_new_ice and vehicle_price_ice <= 50_000:
-            _sct_risk = True  # tani używany bez podanego roku = prawdopodobnie stary
+            _sct_risk = True
         if _sct_risk:
-            _sct_annual_penalty = max(0, 12 * 20 - SCT_FREE_ENTRIES) * SCT_FINE_PER_ENTRY  # ~20 wjazdów/mies × 12
+            _sct_realistic = SCT_ANNUAL_FEE_OLD_CAR  # 3 600 zł/rok (objazdy + mandaty)
             st.warning(
                 f"### 🚫 Strefa Czystego Transportu — ryzyko zakazu wjazdu!\n\n"
                 f"Od 2026 r. w **{', '.join(SCT_CITIES)}** obowiązują limity emisji:\n"
-                f"- {_sct_fuel}: wymagany rocznik **≥ {_sct_min_year}** (norma Euro {4 if fuel_type_idx != 1 else 5}+)\n"
-                f"- Mandat: **{SCT_FINE_PER_ENTRY} zł** za każdy wjazd (po {SCT_FREE_ENTRIES} darmowych/rok)\n"
-                f"- **BEV i PHEV (tryb EV)** — zawsze uprawnione do wjazdu\n\n"
-                f"Jeśli dojeżdżasz do centrum {annual_mileage // 250:.0f}× w roku, "
-                f"potencjalny koszt mandatów: **~{_sct_annual_penalty:,.0f} zł/rok**.\n\n"
+                f"- {_sct_fuel}: wymagany rocznik **≥ {_sct_min_year}** "
+                f"(norma Euro {4 if fuel_type_idx != 1 else 6}+)\n"
+                f"- **Zakaz wjazdu** do strefy + mandat **{SCT_FINE_PER_ENTRY} zł** za każde złamanie\n"
+                f"- **BEV i PHEV** — zawsze uprawnione do wjazdu\n\n"
+                f"Szacowany roczny koszt (objazdy, parkuj&jedź, sporadyczne mandaty): "
+                f"**~{_sct_realistic:,.0f} zł/rok** ({_sct_realistic * period_years:,.0f} zł w {period_years} lat).\n\n"
                 f"*Rozważ BEV lub nowszy pojazd spełniający normy SCT.*"
             )
     
