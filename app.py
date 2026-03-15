@@ -4154,6 +4154,19 @@ else:
         st.session_state["wizard_step"] = 3
         st.rerun()
 
+    # ---- Baner: ostrzeżenie jeśli kreator nie znalazł auta w budżecie ----
+    _wiz_results_adv = st.session_state.get("wizard_results") or {}
+    _wiz_verdict = _wiz_results_adv.get("verdict", "")
+    _wiz_over_budget = _wiz_results_adv.get("over_budget", {})
+    if _wiz_verdict == "no_car" or (len(_wiz_over_budget) > 0 and not any(
+        k in _wiz_results_adv for k in ("ice", "bev", "hyb") if isinstance(_wiz_results_adv.get(k), dict)
+    )):
+        st.warning(
+            "⚠️ **Kreator nie znalazł auta w Twoim budżecie.** "
+            "Poniżej widzisz domyślne auta do porównania — dostosuj parametry "
+            "(segment, cenę, przebieg) do swoich potrzeb."
+        )
+
     # ---- Baner: dane przeniesione z kreatora ----
     _wp = st.session_state.get("_wizard_prefill")
     if _wp:
