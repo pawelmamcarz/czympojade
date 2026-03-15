@@ -245,59 +245,64 @@ _wiz_step = st.session_state.get("wizard_step", 0)
 
 if _wiz_step == 0:
     # ── HERO: pełna strona powitalna — 2-kolumnowy layout ──
-    # CSS responsywny musi być w osobnym st.markdown (Streamlit stripuje <style> wewnątrz HTML)
-    st.markdown(
-        """<style>
-        .czp-hero-grid { display: flex; gap: 40px; align-items: flex-start; position: relative; z-index: 1; }
-        .czp-hero-left { flex: 1; min-width: 0; padding-right: 20px; }
-        .czp-hero-right { flex: 0 0 380px; max-width: 400px; }
-        .czp-hero-highlights { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .czp-hero-title { font-size: 2.6rem; font-weight: 800; line-height: 1.15; margin-bottom: 12px; }
-        @media (max-width: 768px) {
-            .czp-hero-grid { flex-direction: column !important; }
-            .czp-hero-left { padding-right: 0 !important; }
-            .czp-hero-right { margin-top: 24px !important; flex: 1 !important; max-width: 100% !important; }
-            .czp-hero-highlights { grid-template-columns: 1fr 1fr !important; }
-            .czp-hero-title { font-size: 2rem !important; }
-        }
-        @media (max-width: 480px) {
-            .czp-hero-highlights { grid-template-columns: 1fr !important; }
-            .czp-hero-wrap { padding: 28px 20px 24px 20px !important; }
-        }
-        </style>""",
-        unsafe_allow_html=True,
-    )
-    _hero_card = (
-        'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);'
-        'border-radius:12px;padding:16px 14px;'
-    )
-    st.markdown(
-        f"""<div class="czp-hero-wrap" style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#0f172a 100%);border-radius:16px;padding:48px 40px 36px 40px;margin:-1rem -1rem 1.5rem -1rem;color:white;position:relative;overflow:hidden;">
-        <div style="position:absolute;top:0;right:0;bottom:0;left:0;background:radial-gradient(circle at 80% 20%,rgba(59,130,246,0.08) 0%,transparent 50%),radial-gradient(circle at 20% 80%,rgba(34,197,94,0.05) 0%,transparent 40%);pointer-events:none;"></div>
-        <div class="czp-hero-grid">
-            <div class="czp-hero-left">
-                <div class="czp-hero-title">Ile <span style="color:#3b82f6">naprawdę</span> kosztuje<br>Twoje auto?</div>
-                <div style="font-size:1.1rem;color:#94a3b8;margin-bottom:24px;max-width:520px;">Większość kierowców nie zna pełnego kosztu swojego samochodu. Paliwo to dopiero początek — dochodzi amortyzacja, serwis, ubezpieczenie, naprawy…<br><b style="color:#e2e8f0">Policz rzeczywisty koszt posiadania i sprawdź, czy nie przepłacasz.</b></div>
-                <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
-                    <div style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);border-radius:10px;padding:12px 18px;text-align:center;min-width:120px;"><div style="font-size:1.6rem;font-weight:700;color:#3b82f6;">150+</div><div style="font-size:0.75rem;color:#94a3b8;">modeli aut w bazie</div></div>
-                    <div style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);border-radius:10px;padding:12px 18px;text-align:center;min-width:120px;"><div style="font-size:1.6rem;font-weight:700;color:#22c55e;">2 min</div><div style="font-size:0.75rem;color:#94a3b8;">czas analizy</div></div>
-                    <div style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:12px 18px;text-align:center;min-width:120px;"><div style="font-size:1.6rem;font-weight:700;color:#f59e0b;">3</div><div style="font-size:0.75rem;color:#94a3b8;">scenariusze kosztów</div></div>
-                </div>
-            </div>
-            <div class="czp-hero-right">
-                <div class="czp-hero-highlights">
-                    <div style="{_hero_card}"><div style="font-size:1.4rem;margin-bottom:6px;">⚡ vs ⛽</div><div style="font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:4px;">BEV vs ICE vs HEV</div><div style="font-size:0.72rem;color:#94a3b8;line-height:1.35;">Porównanie na Twoim przebiegu i stylu jazdy</div></div>
-                    <div style="{_hero_card}"><div style="font-size:1.4rem;margin-bottom:6px;">📉</div><div style="font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:4px;">Ukryte koszty</div><div style="font-size:0.72rem;color:#94a3b8;line-height:1.35;">Amortyzacja, serwis, naprawy, ubezpieczenie</div></div>
-                    <div style="{_hero_card}"><div style="font-size:1.4rem;margin-bottom:6px;">🔋</div><div style="font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:4px;">PV + Magazyn</div><div style="font-size:0.72rem;color:#94a3b8;line-height:1.35;">Fotowoltaika, BESS, ładowanie za darmo</div></div>
-                    <div style="{_hero_card}"><div style="font-size:1.4rem;margin-bottom:6px;">🏛️</div><div style="font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:4px;">Tarcza podatkowa</div><div style="font-size:0.72rem;color:#94a3b8;line-height:1.35;">CIT/PIT, leasing, amortyzacja BEV 225k</div></div>
-                    <div style="{_hero_card}"><div style="font-size:1.4rem;margin-bottom:6px;">🚫</div><div style="font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:4px;">Strefy SCT</div><div style="font-size:0.72rem;color:#94a3b8;line-height:1.35;">Warszawa, Kraków — koszty wjazdu</div></div>
-                    <div style="background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.25);border-radius:12px;padding:16px 14px;"><div style="font-size:1.4rem;margin-bottom:6px;">🇩🇪</div><div style="font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:4px;">Dane TÜV Report</div><div style="font-size:0.72rem;color:#94a3b8;line-height:1.35;">Awaryjność aut z niemieckich przeglądów</div></div>
-                </div>
-            </div>
-        </div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
+    # Używamy st.components.v1.html() bo st.markdown nie radzi sobie ze złożonym HTML
+    _hc = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px 14px;'
+    st.components.v1.html(f"""
+<style>
+*{{margin:0;padding:0;box-sizing:border-box;}}
+body{{background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}}
+.hero-wrap{{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#0f172a 100%);border-radius:16px;padding:48px 40px 36px 40px;color:white;position:relative;overflow:hidden;}}
+.hero-overlay{{position:absolute;top:0;right:0;bottom:0;left:0;background:radial-gradient(circle at 80% 20%,rgba(59,130,246,0.08) 0%,transparent 50%),radial-gradient(circle at 20% 80%,rgba(34,197,94,0.05) 0%,transparent 40%);pointer-events:none;}}
+.hero-grid{{display:flex;gap:40px;align-items:flex-start;position:relative;z-index:1;}}
+.hero-left{{flex:1;min-width:0;padding-right:20px;}}
+.hero-right{{flex:0 0 380px;max-width:400px;}}
+.hero-title{{font-size:2.6rem;font-weight:800;line-height:1.15;margin-bottom:12px;}}
+.hero-sub{{font-size:1.1rem;color:#94a3b8;margin-bottom:24px;max-width:520px;}}
+.hero-stats{{display:flex;gap:14px;flex-wrap:wrap;align-items:center;}}
+.stat-box{{border-radius:10px;padding:12px 18px;text-align:center;min-width:120px;}}
+.highlights{{display:grid;grid-template-columns:1fr 1fr;gap:12px;}}
+.hi-card{{{_hc}}}
+.hi-card-blue{{background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.25);border-radius:12px;padding:16px 14px;}}
+.hi-icon{{font-size:1.4rem;margin-bottom:6px;}}
+.hi-title{{font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:4px;}}
+.hi-desc{{font-size:0.72rem;color:#94a3b8;line-height:1.35;}}
+@media(max-width:768px){{
+  .hero-grid{{flex-direction:column!important;}}
+  .hero-left{{padding-right:0!important;}}
+  .hero-right{{margin-top:24px!important;flex:1!important;max-width:100%!important;}}
+  .highlights{{grid-template-columns:1fr 1fr!important;}}
+  .hero-title{{font-size:2rem!important;}}
+}}
+@media(max-width:480px){{
+  .highlights{{grid-template-columns:1fr!important;}}
+  .hero-wrap{{padding:28px 20px 24px 20px!important;}}
+}}
+</style>
+<div class="hero-wrap">
+<div class="hero-overlay"></div>
+<div class="hero-grid">
+<div class="hero-left">
+<div class="hero-title">Ile <span style="color:#3b82f6">naprawdę</span> kosztuje<br>Twoje auto?</div>
+<div class="hero-sub">Większość kierowców nie zna pełnego kosztu swojego samochodu. Paliwo to dopiero początek — dochodzi amortyzacja, serwis, ubezpieczenie, naprawy…<br><b style="color:#e2e8f0">Policz rzeczywisty koszt posiadania i sprawdź, czy nie przepłacasz.</b></div>
+<div class="hero-stats">
+<div class="stat-box" style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);"><div style="font-size:1.6rem;font-weight:700;color:#3b82f6;">150+</div><div style="font-size:0.75rem;color:#94a3b8;">modeli aut w bazie</div></div>
+<div class="stat-box" style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);"><div style="font-size:1.6rem;font-weight:700;color:#22c55e;">2 min</div><div style="font-size:0.75rem;color:#94a3b8;">czas analizy</div></div>
+<div class="stat-box" style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);"><div style="font-size:1.6rem;font-weight:700;color:#f59e0b;">3</div><div style="font-size:0.75rem;color:#94a3b8;">scenariusze kosztów</div></div>
+</div>
+</div>
+<div class="hero-right">
+<div class="highlights">
+<div class="hi-card"><div class="hi-icon">⚡ vs ⛽</div><div class="hi-title">BEV vs ICE vs HEV</div><div class="hi-desc">Porównanie na Twoim przebiegu i stylu jazdy</div></div>
+<div class="hi-card"><div class="hi-icon">📉</div><div class="hi-title">Ukryte koszty</div><div class="hi-desc">Amortyzacja, serwis, naprawy, ubezpieczenie</div></div>
+<div class="hi-card"><div class="hi-icon">🔋</div><div class="hi-title">PV + Magazyn</div><div class="hi-desc">Fotowoltaika, BESS, ładowanie za darmo</div></div>
+<div class="hi-card"><div class="hi-icon">🏛️</div><div class="hi-title">Tarcza podatkowa</div><div class="hi-desc">CIT/PIT, leasing, amortyzacja BEV 225k</div></div>
+<div class="hi-card"><div class="hi-icon">🚫</div><div class="hi-title">Strefy SCT</div><div class="hi-desc">Warszawa, Kraków — koszty wjazdu</div></div>
+<div class="hi-card-blue"><div class="hi-icon">🇩🇪</div><div class="hi-title">Dane TÜV Report</div><div class="hi-desc">Awaryjność aut z niemieckich przeglądów</div></div>
+</div>
+</div>
+</div>
+</div>
+""", height=420)
 
     # Feature boxes — rozwijane z detalami jak liczymy
     _fc1, _fc2, _fc3 = st.columns(3)
