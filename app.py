@@ -58,9 +58,15 @@ except ImportError:
 # KONFIGURACJA STRONY
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Czym pojadę w 2026 — zmieniać czy kupić nowe? Jakie?",
+    page_title="Kalkulator TCO CzymPojade.pl",
     page_icon="⚡",
     layout="wide",
+)
+
+# Nadpisz tytuł przeglądarki (Streamlit dodaje "· Streamlit")
+st.components.v1.html(
+    '<script>parent.document.title="Kalkulator TCO CzymPojade.pl";</script>',
+    height=0,
 )
 
 if _HAS_ANALYTICS:
