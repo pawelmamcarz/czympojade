@@ -3572,7 +3572,8 @@ def _render_wizard(fuel_data):
         with st.expander("💡 Co to oznacza?", expanded=True):
             if has_car and "keep" in results:
                 _keep_et = results.get("keep_engine_type", "ICE")
-                _keep_energy = results["keep"].get("energy", 0)
+                _keep_energy_total = results["keep"].get("energy", 0)
+                _keep_energy_yr = _keep_energy_total / max(period, 1)
                 _energy_label = "Prąd" if _keep_et == "BEV" else "Paliwo"
 
                 _insights_parts = []
@@ -3583,16 +3584,17 @@ def _render_wizard(fuel_data):
                         _best_alt_key = _ak
                         break
                 if _best_alt_key:
-                    _alt_energy = results[_best_alt_key].get("energy", 0)
+                    _alt_energy_total = results[_best_alt_key].get("energy", 0)
+                    _alt_energy_yr = _alt_energy_total / max(period, 1)
                     _alt_elbl = "Prąd" if _best_alt_key == "bev" else "Paliwo"
                     _insights_parts.append(
-                        f"- **{_energy_label}** kosztuje Cię ~**{_keep_energy:,.0f} zł/rok**. "
+                        f"- **{_energy_label}** kosztuje Cię ~**{_keep_energy_yr:,.0f} zł/rok**. "
                         f"{_alt_elbl} do {results[_best_alt_key]['name'][:25]} "
-                        f"kosztowałby ~**{_alt_energy:,.0f} zł/rok**."
+                        f"kosztowałby ~**{_alt_energy_yr:,.0f} zł/rok**."
                     )
                 else:
                     _insights_parts.append(
-                        f"- **{_energy_label}** kosztuje Cię ~**{_keep_energy:,.0f} zł/rok**."
+                        f"- **{_energy_label}** kosztuje Cię ~**{_keep_energy_yr:,.0f} zł/rok**."
                     )
 
                 _insights_parts.append(
