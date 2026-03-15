@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.claude/
+.git/
+.DS_Store
+data/
+*.db
+analytics.json
+test_*.py
+.pytest_cache/
+.streamlit/secrets.toml

@@ -1335,5 +1335,69 @@ class TestAltTransportThreshold:
         assert len(app.ALT_TRANSPORT) >= 4
 
 
+class TestCarDatabase:
+    """Testy bazy samochodów (car_database.py)."""
+
+    def test_import(self):
+        from car_database import CAR_DB, search_cars, get_all_names
+        assert len(CAR_DB) > 100
+
+    def test_all_entries_have_required_fields(self):
+        from car_database import CAR_DB
+        for name, p in CAR_DB.items():
+            assert "price" in p, f"{name}: brak price"
+            assert "type" in p, f"{name}: brak type"
+            assert "segment" in p, f"{name}: brak segment"
+            assert "new" in p, f"{name}: brak new"
+            if p["type"] == "BEV":
+                assert "city_kwh" in p, f"{name}: brak city_kwh"
+                assert "hwy_kwh" in p, f"{name}: brak hwy_kwh"
+                assert "bat" in p, f"{name}: brak bat"
+            elif p["type"] in ("ICE",):
+                assert "city_l" in p, f"{name}: brak city_l"
+                assert "hwy_l" in p, f"{name}: brak hwy_l"
+
+    def test_search_substring(self):
+        from car_database import search_cars
+        results = search_cars("tesla")
+        assert len(results) >= 2
+        assert all("tesla" in n.lower() for n, _ in results)
+
+    def test_search_multiword(self):
+        from car_database import search_cars
+        results = search_cars("land rover")
+        assert len(results) >= 1
+
+    def test_search_type_filter(self):
+        from car_database import search_cars
+        results = search_cars("toyota", car_type="BEV")
+        # Toyoty nie ma w BEV
+        assert all(p["type"] == "BEV" for _, p in results)
+
+    def test_search_short_query_returns_empty(self):
+        from car_database import search_cars
+        assert search_cars("a") == []
+        assert search_cars("") == []
+
+    def test_get_all_names_bev(self):
+        from car_database import get_all_names, CAR_DB
+        bev_names = get_all_names("BEV")
+        assert len(bev_names) >= 10
+        assert all(CAR_DB[n]["type"] == "BEV" for n in bev_names)
+
+    def test_get_all_names_hev_includes_phev(self):
+        from car_database import get_all_names, CAR_DB
+        hev_names = get_all_names("HEV")
+        types = {CAR_DB[n]["type"] for n in hev_names}
+        assert "HEV" in types
+        assert "PHEV" in types
+
+    def test_segments_match_app(self):
+        from car_database import CAR_DB
+        valid_segments = set(app.CAR_SEGMENTS) | {"Van – Mały", "Van – Duży"}
+        for name, p in CAR_DB.items():
+            assert p["segment"] in valid_segments, f"{name}: nieznany segment '{p['segment']}'"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

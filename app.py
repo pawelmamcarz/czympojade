@@ -20,6 +20,11 @@ try:
     _HAS_VISITOR_LOG = True
 except ImportError:
     _HAS_VISITOR_LOG = False
+try:
+    from car_database import CAR_DB, search_cars, get_all_names
+    _HAS_CAR_DB = True
+except ImportError:
+    _HAS_CAR_DB = False
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import highspy
@@ -80,19 +85,18 @@ _APP_LANG = getattr(__import__("os"), "environ", {}).get("APP_LANG", "pl")
 # Pasek krajów: aktywny + wkrótce  (czysty HTML — bez Markdown **bold** ani [link](url))
 _EU_ROADMAP_PL = (
     "🌍 <b>Dostępne teraz:</b> &nbsp;"
-    "🇵🇱&nbsp;<a href='https://czympojade.streamlit.app' style='color:#888'>Polska</a>"
-    "&nbsp;·&nbsp;"
-    "🇩🇪&nbsp;<a href='https://womitfahreich2026.streamlit.app' style='color:#888'>Niemcy</a>"
+    "🇵🇱&nbsp;<a href='https://czympojade.pl' style='color:#888'>Polska</a>"
     "&emsp;|&emsp;"
-    "<b>Kolejne kraje EU:</b> &nbsp;"
+    "<b>Wkrótce:</b> &nbsp;"
+    "🇩🇪 Niemcy &nbsp;·&nbsp; "
     "🇫🇷 Francja &nbsp;·&nbsp; 🇳🇱 Holandia &nbsp;·&nbsp; 🇨🇿 Czechy "
     "&nbsp;·&nbsp; 🇦🇹 Austria &nbsp;·&nbsp; 🇸🇪 Szwecja &nbsp;·&nbsp; ···"
 )
 _EU_ROADMAP_DE = (
     "🌍 <b>Verfügbar:</b> &nbsp;"
-    "🇩🇪&nbsp;<a href='https://womitfahreich2026.streamlit.app' style='color:#888'>Deutschland</a>"
+    "🇩🇪&nbsp;<a href='#' style='color:#888'>Deutschland</a> <i>(bald)</i>"
     "&nbsp;·&nbsp;"
-    "🇵🇱&nbsp;<a href='https://czympojade.streamlit.app' style='color:#888'>Polen</a>"
+    "🇵🇱&nbsp;<a href='https://czympojade.pl' style='color:#888'>Polen</a>"
     "&emsp;|&emsp;"
     "<b>Bald für ganz EU:</b> &nbsp;"
     "🇫🇷 Frankreich &nbsp;·&nbsp; 🇳🇱 Niederlande &nbsp;·&nbsp; 🇨🇿 Tschechien "
@@ -3626,26 +3630,47 @@ else:
             help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
         ) == "Nowy"
         ice_presets_all = ICE_PRESETS_NEW if is_new_ice else ICE_PRESETS_USED
-        _ice_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
-        _ice_seg_labels = [_SEG_EMOJI[k] for k in _ice_seg_keys]
-        _ice_seg_kw = {"horizontal": True, "key": "seg_ice"}
-        if "seg_ice" not in st.session_state:
-            _ice_seg_kw["index"] = 3
-        _ice_seg_pick = st.radio("Segment ICE", _ice_seg_labels, **_ice_seg_kw)
-        ice_segment = _SEG_REVERSE[_ice_seg_pick]
-        if ice_segment == "Własne parametry":
-            ice_p = _CUSTOM_ICE_NEW if is_new_ice else _CUSTOM_ICE_USED
-            ice_preset_name = "Własne parametry"
-        else:
-            ice_models = ice_presets_all.get(ice_segment, {})
-            _ice_model_keys = list(ice_models.keys())
-            _ice_pref = st.session_state.get("_prefill_ice_model", "")
-            _ice_idx = _ice_model_keys.index(_ice_pref) if _ice_pref in _ice_model_keys else 0
-            ice_preset_name = st.selectbox(
-                "Model ICE", _ice_model_keys, index=_ice_idx,
-                help="Wybierz model – cena i spalanie wypełnią się automatycznie.",
-            )
-            ice_p = ice_models[ice_preset_name]
+        _ice_use_cardb = _HAS_CAR_DB and st.checkbox(
+            "🔍 Szukaj w rozszerzonej bazie (~150 aut)", key="cardb_ice_toggle",
+        )
+        if _ice_use_cardb:
+            _ice_cardb = {n: p for n, p in CAR_DB.items()
+                         if p["type"] == "ICE" and p["new"] == is_new_ice}
+            _ice_cardb_names = sorted(_ice_cardb.keys())
+            if _ice_cardb_names:
+                _ice_cardb_pick = st.selectbox(
+                    "🔍 Model ICE (rozszerzona baza)", _ice_cardb_names,
+                    key="cardb_ice_pick",
+                    help="Wyszukaj model — wpisz nazwę, np. 'land rover' lub 'golf'.",
+                )
+                _ice_cd = _ice_cardb[_ice_cardb_pick]
+                ice_p = {"price": _ice_cd["price"], "city_l": _ice_cd["city_l"],
+                         "hwy_l": _ice_cd["hwy_l"], "fuel": _ice_cd.get("fuel", 0)}
+                ice_preset_name = _ice_cardb_pick
+                ice_segment = _ice_cd["segment"]
+            else:
+                _ice_use_cardb = False
+        if not _ice_use_cardb:
+            _ice_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
+            _ice_seg_labels = [_SEG_EMOJI[k] for k in _ice_seg_keys]
+            _ice_seg_kw = {"horizontal": True, "key": "seg_ice"}
+            if "seg_ice" not in st.session_state:
+                _ice_seg_kw["index"] = 3
+            _ice_seg_pick = st.radio("Segment ICE", _ice_seg_labels, **_ice_seg_kw)
+            ice_segment = _SEG_REVERSE[_ice_seg_pick]
+            if ice_segment == "Własne parametry":
+                ice_p = _CUSTOM_ICE_NEW if is_new_ice else _CUSTOM_ICE_USED
+                ice_preset_name = "Własne parametry"
+            else:
+                ice_models = ice_presets_all.get(ice_segment, {})
+                _ice_model_keys = list(ice_models.keys())
+                _ice_pref = st.session_state.get("_prefill_ice_model", "")
+                _ice_idx = _ice_model_keys.index(_ice_pref) if _ice_pref in _ice_model_keys else 0
+                ice_preset_name = st.selectbox(
+                    "Model ICE", _ice_model_keys, index=_ice_idx,
+                    help="Wybierz model – cena i spalanie wypełnią się automatycznie.",
+                )
+                ice_p = ice_models[ice_preset_name]
         ice_model = st.text_input(
             "Marka i model ICE",
             value=ice_preset_name if ice_preset_name != "Własne parametry" else (
@@ -3714,26 +3739,56 @@ else:
             help="Nowy = auto z salonu. Używany = z rynku wtórnego.",
         ) == "Nowy"
         hyb_presets_all = HYB_PRESETS_NEW if is_new_hyb else HYB_PRESETS_USED
-        _hyb_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
-        _hyb_seg_labels = [_SEG_EMOJI[k] for k in _hyb_seg_keys]
-        _hyb_seg_kw = {"horizontal": True, "key": "seg_hyb"}
-        if "seg_hyb" not in st.session_state:
-            _hyb_seg_kw["index"] = 4
-        _hyb_seg_pick = st.radio("Segment Hybryda", _hyb_seg_labels, **_hyb_seg_kw)
-        hyb_segment = _SEG_REVERSE[_hyb_seg_pick]
-        if hyb_segment == "Własne parametry":
-            hyb_p = _CUSTOM_HYB_NEW if is_new_hyb else _CUSTOM_HYB_USED
-            hyb_preset_name = "Własne parametry"
-        else:
-            hyb_models = hyb_presets_all.get(hyb_segment, {})
-            _hyb_model_keys = list(hyb_models.keys())
-            _hyb_pref = st.session_state.get("_prefill_hyb_model", "")
-            _hyb_idx = _hyb_model_keys.index(_hyb_pref) if _hyb_pref in _hyb_model_keys else 0
-            hyb_preset_name = st.selectbox(
-                "Model Hybryda", _hyb_model_keys, index=_hyb_idx,
-                help="Wybierz model — cena i spalanie wypełnią się automatycznie.",
-            )
-            hyb_p = hyb_models[hyb_preset_name]
+        _hyb_use_cardb = _HAS_CAR_DB and st.checkbox(
+            "🔍 Szukaj w rozszerzonej bazie", key="cardb_hyb_toggle",
+        )
+        if _hyb_use_cardb:
+            _hyb_cardb = {n: p for n, p in CAR_DB.items()
+                         if p["type"] in ("HEV", "PHEV") and p["new"] == is_new_hyb}
+            _hyb_cardb_names = sorted(_hyb_cardb.keys())
+            if _hyb_cardb_names:
+                _hyb_cardb_pick = st.selectbox(
+                    "🔍 Model Hybryda (rozszerzona baza)", _hyb_cardb_names,
+                    key="cardb_hyb_pick",
+                    help="Wyszukaj model — wpisz nazwę.",
+                )
+                _hyb_cd = _hyb_cardb[_hyb_cardb_pick]
+                hyb_p = {
+                    "price": _hyb_cd["price"],
+                    "city_l": _hyb_cd.get("city_l", 5.0),
+                    "hwy_l": _hyb_cd.get("hwy_l", 5.5),
+                    "fuel": _hyb_cd.get("fuel", 0),
+                    "hybrid_type": _hyb_cd["type"],
+                    "bat": _hyb_cd.get("bat", 0),
+                    "city_kwh": _hyb_cd.get("city_kwh", 0),
+                    "hwy_kwh": _hyb_cd.get("hwy_kwh", 0),
+                    "elec_pct": _hyb_cd.get("elec_pct", 0),
+                }
+                hyb_preset_name = _hyb_cardb_pick
+                hyb_segment = _hyb_cd["segment"]
+            else:
+                _hyb_use_cardb = False
+        if not _hyb_use_cardb:
+            _hyb_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
+            _hyb_seg_labels = [_SEG_EMOJI[k] for k in _hyb_seg_keys]
+            _hyb_seg_kw = {"horizontal": True, "key": "seg_hyb"}
+            if "seg_hyb" not in st.session_state:
+                _hyb_seg_kw["index"] = 4
+            _hyb_seg_pick = st.radio("Segment Hybryda", _hyb_seg_labels, **_hyb_seg_kw)
+            hyb_segment = _SEG_REVERSE[_hyb_seg_pick]
+            if hyb_segment == "Własne parametry":
+                hyb_p = _CUSTOM_HYB_NEW if is_new_hyb else _CUSTOM_HYB_USED
+                hyb_preset_name = "Własne parametry"
+            else:
+                hyb_models = hyb_presets_all.get(hyb_segment, {})
+                _hyb_model_keys = list(hyb_models.keys())
+                _hyb_pref = st.session_state.get("_prefill_hyb_model", "")
+                _hyb_idx = _hyb_model_keys.index(_hyb_pref) if _hyb_pref in _hyb_model_keys else 0
+                hyb_preset_name = st.selectbox(
+                    "Model Hybryda", _hyb_model_keys, index=_hyb_idx,
+                    help="Wybierz model — cena i spalanie wypełnią się automatycznie.",
+                )
+                hyb_p = hyb_models[hyb_preset_name]
         hyb_model = st.text_input(
             "Marka i model Hybryda",
             value=hyb_preset_name if hyb_preset_name != "Własne parametry" else (
@@ -3805,26 +3860,47 @@ else:
             help="Nowy = auto z salonu. Używany = z rynku wtórnego (wyższe koszty serwisowe).",
         ) == "Nowy"
         bev_presets_all = BEV_PRESETS_NEW if is_new_bev else BEV_PRESETS_USED
-        _bev_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
-        _bev_seg_labels = [_SEG_EMOJI[k] for k in _bev_seg_keys]
-        _bev_seg_kw = {"horizontal": True, "key": "seg_bev"}
-        if "seg_bev" not in st.session_state:
-            _bev_seg_kw["index"] = 4
-        _bev_seg_pick = st.radio("Segment BEV", _bev_seg_labels, **_bev_seg_kw)
-        bev_segment = _SEG_REVERSE[_bev_seg_pick]
-        if bev_segment == "Własne parametry":
-            bev_p = _CUSTOM_BEV_NEW if is_new_bev else _CUSTOM_BEV_USED
-            bev_preset_name = "Własne parametry"
-        else:
-            bev_models = bev_presets_all.get(bev_segment, {})
-            _bev_model_keys = list(bev_models.keys())
-            _bev_pref = st.session_state.get("_prefill_bev_model", "")
-            _bev_idx = _bev_model_keys.index(_bev_pref) if _bev_pref in _bev_model_keys else 0
-            bev_preset_name = st.selectbox(
-                "Model BEV", _bev_model_keys, index=_bev_idx,
-                help="Wybierz model – cena, zużycie i bateria wypełnią się automatycznie.",
-            )
-            bev_p = bev_models[bev_preset_name]
+        _bev_use_cardb = _HAS_CAR_DB and st.checkbox(
+            "🔍 Szukaj w rozszerzonej bazie", key="cardb_bev_toggle",
+        )
+        if _bev_use_cardb:
+            _bev_cardb = {n: p for n, p in CAR_DB.items()
+                         if p["type"] == "BEV" and p["new"] == is_new_bev}
+            _bev_cardb_names = sorted(_bev_cardb.keys())
+            if _bev_cardb_names:
+                _bev_cardb_pick = st.selectbox(
+                    "🔍 Model BEV (rozszerzona baza)", _bev_cardb_names,
+                    key="cardb_bev_pick",
+                    help="Wyszukaj model — wpisz nazwę.",
+                )
+                _bev_cd = _bev_cardb[_bev_cardb_pick]
+                bev_p = {"price": _bev_cd["price"], "city_kwh": _bev_cd["city_kwh"],
+                         "hwy_kwh": _bev_cd["hwy_kwh"], "bat": _bev_cd["bat"]}
+                bev_preset_name = _bev_cardb_pick
+                bev_segment = _bev_cd["segment"]
+            else:
+                _bev_use_cardb = False
+        if not _bev_use_cardb:
+            _bev_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
+            _bev_seg_labels = [_SEG_EMOJI[k] for k in _bev_seg_keys]
+            _bev_seg_kw = {"horizontal": True, "key": "seg_bev"}
+            if "seg_bev" not in st.session_state:
+                _bev_seg_kw["index"] = 4
+            _bev_seg_pick = st.radio("Segment BEV", _bev_seg_labels, **_bev_seg_kw)
+            bev_segment = _SEG_REVERSE[_bev_seg_pick]
+            if bev_segment == "Własne parametry":
+                bev_p = _CUSTOM_BEV_NEW if is_new_bev else _CUSTOM_BEV_USED
+                bev_preset_name = "Własne parametry"
+            else:
+                bev_models = bev_presets_all.get(bev_segment, {})
+                _bev_model_keys = list(bev_models.keys())
+                _bev_pref = st.session_state.get("_prefill_bev_model", "")
+                _bev_idx = _bev_model_keys.index(_bev_pref) if _bev_pref in _bev_model_keys else 0
+                bev_preset_name = st.selectbox(
+                    "Model BEV", _bev_model_keys, index=_bev_idx,
+                    help="Wybierz model – cena, zużycie i bateria wypełnią się automatycznie.",
+                )
+                bev_p = bev_models[bev_preset_name]
         bev_model = st.text_input(
             "Marka i model BEV",
             value=bev_preset_name if bev_preset_name != "Własne parametry" else (
