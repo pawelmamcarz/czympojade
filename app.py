@@ -2981,7 +2981,10 @@ def _render_wizard(fuel_data):
                     _targets = list(range(1, len(_components) + 1))
                     _values = [abs(v) for _, v, _ in _components]
                     _colors = [c for _, _, c in _components]
-                    _link_colors = [c + "80" for c in _colors]  # transparent
+                    def _hex_to_rgba(h, alpha=0.5):
+                        h = h.lstrip("#")
+                        return f"rgba({int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)},{alpha})"
+                    _link_colors = [_hex_to_rgba(c) for c in _colors]
 
                     fig_sankey = go.Figure(data=[go.Sankey(
                         node=dict(
