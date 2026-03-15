@@ -66,12 +66,16 @@ st.set_page_config(
 # --- Ukryj "Made with Streamlit" z menu hamburger ---
 st.markdown(
     """<style>
+    /* Usuń wielki biały padding na górze strony */
+    .stApp > header {display: none !important;}
+    .block-container {padding-top: 1rem !important; padding-bottom: 1rem !important;}
+    section[data-testid="stSidebar"] > div {padding-top: 1rem;}
+    /* Hide Streamlit branding */
     #MainMenu .st-emotion-cache-eczf16 {display: none;}
     footer {visibility: hidden;}
     [data-testid="manage-app-button"] {display: none;}
     .reportview-container .main footer {visibility: hidden;}
     div[data-testid="stToolbarActions"] button:last-child {display: none;}
-    /* Hide "Made with Streamlit" text in hamburger menu */
     #MainMenu ul li:last-child {display: none !important;}
     </style>""",
     unsafe_allow_html=True,
