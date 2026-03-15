@@ -2355,6 +2355,7 @@ def _prefill_from_wizard(wdata):
     Mapa kluczy:
       wizard wdata               → full-analysis widget key / query_param
       monthly_km * 12            → qp["km"]
+      WIZARD_PERIOD_YEARS        → qp["yrs"]  (horyzont analizy: 5 lat)
       car_value                  → qp["v_ice"]
       driving_style (WIZARD_ROAD_SPLITS) → qp["city"], qp["rural"], qp["hwy"]
                                            + session_state pct_city/pct_rural/pct_highway
@@ -2364,9 +2365,10 @@ def _prefill_from_wizard(wdata):
       has_pv                     → session_state adv_roof, adv_pv_already
       budget_monthly             → session_state adv_budget
     """
-    # ---- (A) query_params — roczny przebieg i wartość auta ----
+    # ---- (A) query_params — roczny przebieg, wartość auta, horyzont analizy ----
     annual_km = wdata.get("monthly_km", 1500) * 12
     st.query_params["km"] = str(annual_km)
+    st.query_params["yrs"] = str(WIZARD_PERIOD_YEARS)  # spójny horyzont wizard → advanced
     if wdata.get("has_car"):
         st.query_params["v_ice"] = str(wdata.get("car_value", 65_000))
 
