@@ -1752,8 +1752,9 @@ def run_wizard_analysis(wizard_data, fuel_data):
                 r_ice_adj["monthly"] = r_ice_adj["tco_net"] / (period * 12)
                 results["ice"] = {"name": ice_name, "price": ice_p["price"], **r_ice_adj}
 
-        # Zapamiętaj typ napędu obecnego auta w wynikach
+        # Zapamiętaj typ napędu i preset obecnego auta w wynikach
         results["keep_engine_type"] = engine_type
+        results["keep_preset_name"] = _keep_preset_name
 
     else:
         # --- Szukam auta: porównanie ICE vs HYB vs BEV + alternatywny transport ---
@@ -2120,11 +2121,17 @@ def _prefill_from_wizard(wdata):
     st.session_state["seg_ice"] = _seg_emoji_label
 
     # ---- (D) Nowy / używany → key is_new_ice ----
+    # Obecne auto usera → "Używany" (chyba że car_age==0)
+    # Alternatywy z wizarda → zawsze "Nowy"
     _prefer_new = wdata.get("prefer_new", True)
     _car_age    = wdata.get("car_age", 0)
-    _is_new     = _prefer_new if not wdata.get("has_car") else (_car_age == 0)
+    _fuel_label_d = wdata.get("current_fuel", "Benzyna")
+    _, _keep_et_d = WIZARD_FUEL_MAP.get(_fuel_label_d, (0, "ICE"))
+    _is_keep_new = _prefer_new if not wdata.get("has_car") else (_car_age == 0)
+    # ICE kolumna = keep (gdy user ma ICE) lub alternatywa (gdy user ma BEV/HEV)
+    _ice_is_new = _is_keep_new if _keep_et_d == "ICE" else True
     st.session_state.pop("is_new_ice", None)
-    st.session_state["is_new_ice"] = "Nowy" if _is_new else "Używany"
+    st.session_state["is_new_ice"] = "Nowy" if _ice_is_new else "Używany"
 
     # ---- (E) Garaż / wallbox ----
     st.session_state.pop("adv_garage", None)
@@ -2142,6 +2149,50 @@ def _prefill_from_wizard(wdata):
     _budget = max(500, min(15_000, int(round(_budget_raw / 250) * 250)))
     st.session_state.pop("adv_budget", None)
     st.session_state["adv_budget"] = _budget
+
+    # ---- (H) Segment i stan BEV / HYB — takie same jak ICE ----
+    for _suffix in ("bev", "hyb"):
+        _seg_k = f"seg_{_suffix}"
+        st.session_state.pop(_seg_k, None)
+        st.session_state[_seg_k] = _seg_emoji_label  # ten sam segment co ICE
+        _new_k = f"is_new_{_suffix}"
+        st.session_state.pop(_new_k, None)
+        st.session_state[_new_k] = "Nowy"  # alternatywy z wizarda to zawsze nowe
+
+    # ---- (I) Wartości i nazwy aut z wyników wizarda (BEV/HYB/ICE) ----
+    _wiz_results = st.session_state.get("wizard_results") or {}
+
+    # Modele z alternatyw wizarda
+    if "bev" in _wiz_results:
+        st.query_params["v_bev"] = str(_wiz_results["bev"]["price"])
+        st.session_state["_prefill_bev_model"] = _wiz_results["bev"]["name"]
+    if "hyb" in _wiz_results:
+        st.query_params["v_hyb"] = str(_wiz_results["hyb"]["price"])
+        st.session_state["_prefill_hyb_model"] = _wiz_results["hyb"]["name"]
+    if "ice" in _wiz_results:
+        st.query_params["v_ice"] = str(_wiz_results["ice"]["price"])
+        st.session_state["_prefill_ice_model"] = _wiz_results["ice"]["name"]
+
+    # Keep (obecne auto) → mapuj na odpowiednią kolumnę w advanced
+    if wdata.get("has_car") and "keep" in _wiz_results:
+        _keep_et = _wiz_results.get("keep_engine_type", "ICE")
+        _keep_pname = _wiz_results.get("keep_preset_name", "")
+        if _keep_et == "BEV":
+            st.session_state["_prefill_bev_model"] = _keep_pname or ""
+            st.session_state.pop("is_new_bev", None)
+            st.session_state["is_new_bev"] = "Używany"
+        elif _keep_et in ("HEV", "PHEV"):
+            st.session_state["_prefill_hyb_model"] = _keep_pname or ""
+            st.session_state.pop("is_new_hyb", None)
+            st.session_state["is_new_hyb"] = "Używany"
+        else:
+            st.session_state["_prefill_ice_model"] = _keep_pname or ""
+
+    # ---- (J) Rodzaj paliwa ICE z wizarda ----
+    _fuel_label = wdata.get("current_fuel", "Benzyna")
+    _fuel_idx, _ = WIZARD_FUEL_MAP.get(_fuel_label, (0, "ICE"))
+    st.session_state.pop("fuel_type_ice", None)
+    st.session_state["_prefill_fuel_idx"] = _fuel_idx
 
     # ---- (Z) Zachowaj surowe dane wizarda (dla banera podsumowania) ----
     st.session_state["_wizard_prefill"] = wdata
@@ -3373,6 +3424,7 @@ else:
     _qp = st.query_params
     _qp_v_ice = int(_qp.get("v_ice", 0))
     _qp_v_bev = int(_qp.get("v_bev", 0))
+    _qp_v_hyb = int(_qp.get("v_hyb", 0))
     _qp_km = int(_qp.get("km", 0))
     _qp_yrs = int(_qp.get("yrs", 0))
     _qp_city = int(_qp.get("city", 0))
@@ -3390,18 +3442,21 @@ else:
         ice_presets_all = ICE_PRESETS_NEW if is_new_ice else ICE_PRESETS_USED
         _ice_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
         _ice_seg_labels = [_SEG_EMOJI[k] for k in _ice_seg_keys]
-        _ice_seg_pick = st.radio(
-            "Segment ICE", _ice_seg_labels, index=3, key="seg_ice",
-            horizontal=True,
-        )
+        _ice_seg_kw = {"horizontal": True, "key": "seg_ice"}
+        if "seg_ice" not in st.session_state:
+            _ice_seg_kw["index"] = 3
+        _ice_seg_pick = st.radio("Segment ICE", _ice_seg_labels, **_ice_seg_kw)
         ice_segment = _SEG_REVERSE[_ice_seg_pick]
         if ice_segment == "Własne parametry":
             ice_p = _CUSTOM_ICE_NEW if is_new_ice else _CUSTOM_ICE_USED
             ice_preset_name = "Własne parametry"
         else:
             ice_models = ice_presets_all.get(ice_segment, {})
+            _ice_model_keys = list(ice_models.keys())
+            _ice_pref = st.session_state.get("_prefill_ice_model", "")
+            _ice_idx = _ice_model_keys.index(_ice_pref) if _ice_pref in _ice_model_keys else 0
             ice_preset_name = st.selectbox(
-                "Model ICE", list(ice_models.keys()), index=0,
+                "Model ICE", _ice_model_keys, index=_ice_idx,
                 help="Wybierz model – cena i spalanie wypełnią się automatycznie.",
             )
             ice_p = ice_models[ice_preset_name]
@@ -3475,18 +3530,21 @@ else:
         hyb_presets_all = HYB_PRESETS_NEW if is_new_hyb else HYB_PRESETS_USED
         _hyb_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
         _hyb_seg_labels = [_SEG_EMOJI[k] for k in _hyb_seg_keys]
-        _hyb_seg_pick = st.radio(
-            "Segment Hybryda", _hyb_seg_labels, index=4, key="seg_hyb",
-            horizontal=True,
-        )
+        _hyb_seg_kw = {"horizontal": True, "key": "seg_hyb"}
+        if "seg_hyb" not in st.session_state:
+            _hyb_seg_kw["index"] = 4
+        _hyb_seg_pick = st.radio("Segment Hybryda", _hyb_seg_labels, **_hyb_seg_kw)
         hyb_segment = _SEG_REVERSE[_hyb_seg_pick]
         if hyb_segment == "Własne parametry":
             hyb_p = _CUSTOM_HYB_NEW if is_new_hyb else _CUSTOM_HYB_USED
             hyb_preset_name = "Własne parametry"
         else:
             hyb_models = hyb_presets_all.get(hyb_segment, {})
+            _hyb_model_keys = list(hyb_models.keys())
+            _hyb_pref = st.session_state.get("_prefill_hyb_model", "")
+            _hyb_idx = _hyb_model_keys.index(_hyb_pref) if _hyb_pref in _hyb_model_keys else 0
             hyb_preset_name = st.selectbox(
-                "Model Hybryda", list(hyb_models.keys()), index=0,
+                "Model Hybryda", _hyb_model_keys, index=_hyb_idx,
                 help="Wybierz model — cena i spalanie wypełnią się automatycznie.",
             )
             hyb_p = hyb_models[hyb_preset_name]
@@ -3501,7 +3559,7 @@ else:
         vehicle_value_hyb = st.number_input(
             "Wartość auta HYB – brutto (zł)",
             min_value=5_000, max_value=1_000_000,
-            value=hyb_p["price"],
+            value=_qp_v_hyb if _qp_v_hyb > 0 else hyb_p["price"],
             step=5_000,
             help="Cena katalogowa / rynkowa brutto (z VAT).",
         )
@@ -3563,18 +3621,21 @@ else:
         bev_presets_all = BEV_PRESETS_NEW if is_new_bev else BEV_PRESETS_USED
         _bev_seg_keys = ["Własne parametry"] + CAR_SEGMENTS + ["Fun Car 🏎️", "Redneck 🤠"]
         _bev_seg_labels = [_SEG_EMOJI[k] for k in _bev_seg_keys]
-        _bev_seg_pick = st.radio(
-            "Segment BEV", _bev_seg_labels, index=4, key="seg_bev",
-            horizontal=True,
-        )
+        _bev_seg_kw = {"horizontal": True, "key": "seg_bev"}
+        if "seg_bev" not in st.session_state:
+            _bev_seg_kw["index"] = 4
+        _bev_seg_pick = st.radio("Segment BEV", _bev_seg_labels, **_bev_seg_kw)
         bev_segment = _SEG_REVERSE[_bev_seg_pick]
         if bev_segment == "Własne parametry":
             bev_p = _CUSTOM_BEV_NEW if is_new_bev else _CUSTOM_BEV_USED
             bev_preset_name = "Własne parametry"
         else:
             bev_models = bev_presets_all.get(bev_segment, {})
+            _bev_model_keys = list(bev_models.keys())
+            _bev_pref = st.session_state.get("_prefill_bev_model", "")
+            _bev_idx = _bev_model_keys.index(_bev_pref) if _bev_pref in _bev_model_keys else 0
             bev_preset_name = st.selectbox(
-                "Model BEV", list(bev_models.keys()), index=0,
+                "Model BEV", _bev_model_keys, index=_bev_idx,
                 help="Wybierz model – cena, zużycie i bateria wypełnią się automatycznie.",
             )
             bev_p = bev_models[bev_preset_name]
