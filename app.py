@@ -77,29 +77,33 @@ st.markdown(
     </style>""",
     unsafe_allow_html=True,
 )
-# JS: usuń "Made with Streamlit" z menu hamburger (CSS nie łapie w 1.55+)
+# JS: usuń "Made with Streamlit" z menu hamburger
+# UWAGA: celuj TYLKO w liście (leaf elements) żeby nie ukryć całego menu/strony
 st.components.v1.html("""
 <script>
-(function hide() {
-    function remove() {
-        // Szukaj w parent document (iframe) i w bieżącym
-        [document, parent.document].forEach(function(doc) {
-            doc.querySelectorAll('a, span, li, div').forEach(function(el) {
-                if (el.textContent && el.textContent.match(/Made with Streamlit/i)) {
-                    el.style.display = 'none';
-                    if (el.parentElement && el.parentElement.tagName === 'LI') {
-                        el.parentElement.style.display = 'none';
-                    }
+(function(){
+    function removeBranding(){
+        try {
+            var doc = parent.document;
+            // Szukaj tylko w a i span — to są leaf-elementy z tym tekstem
+            doc.querySelectorAll('a[href*="streamlit.io"], a[href*="streamlit.app"]').forEach(function(el){
+                var li = el.closest('li');
+                if(li) li.style.display='none';
+                else el.style.display='none';
+            });
+            // Fallback: szukaj span/a z dokładnym tekstem (nie textContent rodzica!)
+            doc.querySelectorAll('span, a').forEach(function(el){
+                if(el.children.length === 0 && el.textContent.trim().match(/^Made with Streamlit/i)){
+                    var li = el.closest('li');
+                    if(li) li.style.display='none';
+                    else el.style.display='none';
                 }
             });
-        });
+        } catch(e){}
     }
-    remove();
-    // Powtórz po załadowaniu menu (lazy render)
-    var observer = new MutationObserver(function() { remove(); });
-    observer.observe(parent.document.body, {childList: true, subtree: true});
-    setTimeout(remove, 2000);
-    setTimeout(remove, 5000);
+    removeBranding();
+    var obs = new MutationObserver(removeBranding);
+    try { obs.observe(parent.document.body,{childList:true,subtree:true}); } catch(e){}
 })();
 </script>
 """, height=0)
@@ -244,150 +248,85 @@ _APP_LANG = getattr(__import__("os"), "environ", {}).get("APP_LANG", "pl")
 _wiz_step = st.session_state.get("wizard_step", 0)
 
 if _wiz_step == 0:
-    # ── HERO: pełna strona powitalna — 2-kolumnowy layout ──
-    # Używamy st.components.v1.html() bo st.markdown nie radzi sobie ze złożonym HTML
-    _hc = 'background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px 14px;'
-    st.components.v1.html(f"""
+    # ── HERO: kompaktowy baner + CTA prowadzący do profili ──
+    st.components.v1.html("""
 <style>
-*{{margin:0;padding:0;box-sizing:border-box;}}
-body{{background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}}
-.hero-wrap{{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 60%,#0f172a 100%);border-radius:16px;padding:48px 40px 36px 40px;color:white;position:relative;overflow:hidden;}}
-.hero-overlay{{position:absolute;top:0;right:0;bottom:0;left:0;background:radial-gradient(circle at 80% 20%,rgba(59,130,246,0.08) 0%,transparent 50%),radial-gradient(circle at 20% 80%,rgba(34,197,94,0.05) 0%,transparent 40%);pointer-events:none;}}
-.hero-grid{{display:flex;gap:40px;align-items:flex-start;position:relative;z-index:1;}}
-.hero-left{{flex:1;min-width:0;padding-right:20px;}}
-.hero-right{{flex:0 0 380px;max-width:400px;}}
-.hero-title{{font-size:2.6rem;font-weight:800;line-height:1.15;margin-bottom:12px;}}
-.hero-sub{{font-size:1.1rem;color:#94a3b8;margin-bottom:24px;max-width:520px;}}
-.hero-stats{{display:flex;gap:14px;flex-wrap:wrap;align-items:center;}}
-.stat-box{{border-radius:10px;padding:12px 18px;text-align:center;min-width:120px;}}
-.highlights{{display:grid;grid-template-columns:1fr 1fr;gap:12px;}}
-.hi-card{{{_hc}}}
-.hi-card-blue{{background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.25);border-radius:12px;padding:16px 14px;}}
-.hi-icon{{font-size:1.4rem;margin-bottom:6px;}}
-.hi-title{{font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:4px;}}
-.hi-desc{{font-size:0.72rem;color:#94a3b8;line-height:1.35;}}
-@media(max-width:768px){{
-  .hero-grid{{flex-direction:column!important;}}
-  .hero-left{{padding-right:0!important;}}
-  .hero-right{{margin-top:24px!important;flex:1!important;max-width:100%!important;}}
-  .highlights{{grid-template-columns:1fr 1fr!important;}}
-  .hero-title{{font-size:2rem!important;}}
-}}
-@media(max-width:480px){{
-  .highlights{{grid-template-columns:1fr!important;}}
-  .hero-wrap{{padding:28px 20px 24px 20px!important;}}
-}}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}
+.hero{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);border-radius:16px;padding:40px 36px 32px;color:white;text-align:center;position:relative;overflow:hidden;}
+.hero::before{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:radial-gradient(circle at 70% 30%,rgba(59,130,246,0.1) 0%,transparent 50%);pointer-events:none;}
+.hero-content{position:relative;z-index:1;max-width:700px;margin:0 auto;}
+.hero h1{font-size:2.4rem;font-weight:800;line-height:1.15;margin-bottom:10px;}
+.hero h1 span{color:#3b82f6;}
+.hero p{font-size:1.05rem;color:#94a3b8;margin-bottom:20px;line-height:1.5;}
+.hero p b{color:#e2e8f0;}
+.badges{display:flex;justify-content:center;gap:24px;flex-wrap:wrap;margin-top:16px;}
+.badge{display:flex;align-items:center;gap:6px;font-size:0.78rem;color:#94a3b8;}
+.badge .num{font-weight:700;font-size:1rem;}
+.b-blue .num{color:#3b82f6;} .b-green .num{color:#22c55e;} .b-amber .num{color:#f59e0b;}
+.arrow{margin-top:20px;font-size:1.4rem;color:#3b82f6;animation:bounce 2s infinite;}
+@keyframes bounce{0%,100%{transform:translateY(0);}50%{transform:translateY(6px);}}
+@media(max-width:480px){.hero{padding:28px 20px 24px;} .hero h1{font-size:1.8rem;}}
 </style>
-<div class="hero-wrap">
-<div class="hero-overlay"></div>
-<div class="hero-grid">
-<div class="hero-left">
-<div class="hero-title">Ile <span style="color:#3b82f6">naprawdę</span> kosztuje<br>Twoje auto?</div>
-<div class="hero-sub">Większość kierowców nie zna pełnego kosztu swojego samochodu. Paliwo to dopiero początek — dochodzi amortyzacja, serwis, ubezpieczenie, naprawy…<br><b style="color:#e2e8f0">Policz rzeczywisty koszt posiadania i sprawdź, czy nie przepłacasz.</b></div>
-<div class="hero-stats">
-<div class="stat-box" style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);"><div style="font-size:1.6rem;font-weight:700;color:#3b82f6;">150+</div><div style="font-size:0.75rem;color:#94a3b8;">modeli aut w bazie</div></div>
-<div class="stat-box" style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);"><div style="font-size:1.6rem;font-weight:700;color:#22c55e;">2 min</div><div style="font-size:0.75rem;color:#94a3b8;">czas analizy</div></div>
-<div class="stat-box" style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);"><div style="font-size:1.6rem;font-weight:700;color:#f59e0b;">3</div><div style="font-size:0.75rem;color:#94a3b8;">scenariusze kosztów</div></div>
+<div class="hero">
+<div class="hero-content">
+<h1>Ile <span>naprawdę</span> kosztuje<br>Twoje auto?</h1>
+<p>Paliwo to dopiero <b>30-40%</b> kosztów. Dochodzi amortyzacja, serwis, ubezpieczenie, naprawy…<br><b>Wybierz swój profil poniżej i sprawdź w 2 minuty.</b></p>
+<div class="badges">
+<div class="badge b-blue"><span class="num">150+</span> modeli aut</div>
+<div class="badge b-green"><span class="num">2 min</span> analiza</div>
+<div class="badge b-amber"><span class="num">∞</span> Twój profil jazdy</div>
+<div class="badge"><span class="num">🇩🇪</span> dane TÜV Report</div>
+</div>
+<div class="arrow">▼</div>
 </div>
 </div>
-<div class="hero-right">
-<div class="highlights">
-<div class="hi-card"><div class="hi-icon">⚡ vs ⛽</div><div class="hi-title">BEV vs ICE vs HEV</div><div class="hi-desc">Porównanie na Twoim przebiegu i stylu jazdy</div></div>
-<div class="hi-card"><div class="hi-icon">📉</div><div class="hi-title">Ukryte koszty</div><div class="hi-desc">Amortyzacja, serwis, naprawy, ubezpieczenie</div></div>
-<div class="hi-card"><div class="hi-icon">🔋</div><div class="hi-title">PV + Magazyn</div><div class="hi-desc">Fotowoltaika, BESS, ładowanie za darmo</div></div>
-<div class="hi-card"><div class="hi-icon">🏛️</div><div class="hi-title">Tarcza podatkowa</div><div class="hi-desc">CIT/PIT, leasing, amortyzacja BEV 225k</div></div>
-<div class="hi-card"><div class="hi-icon">🚫</div><div class="hi-title">Strefy SCT</div><div class="hi-desc">Warszawa, Kraków — koszty wjazdu</div></div>
-<div class="hi-card-blue"><div class="hi-icon">🇩🇪</div><div class="hi-title">Dane TÜV Report</div><div class="hi-desc">Awaryjność aut z niemieckich przeglądów</div></div>
-</div>
-</div>
-</div>
-</div>
-""", height=420)
+""", height=300)
 
-    # Feature boxes — rozwijane z detalami jak liczymy
-    _fc1, _fc2, _fc3 = st.columns(3)
-    with _fc1:
-        with st.expander("⚡ vs ⛽ **Elektryk vs spalinowy**"):
-            st.markdown(
-                "Porównujemy **BEV, hybrydę (HEV/PHEV) i spalinowy (ICE)** na identycznych "
-                "parametrach: Twój przebieg, styl jazdy, ceny paliw.\n\n"
-                "**Jak liczymy:**\n"
-                "- Zużycie energii/paliwa: osobno miasto, trasa, autostrada (kWh/100km lub l/100km)\n"
-                "- BEV: optymalizacja ładowania solverem HiGHS (dom, praca, DC, PV)\n"
-                "- Ceny paliw pobierane na żywo z e-petrol.pl\n"
-                "- Prąd: taryfa G11, G12w, dynamiczna RDN lub darmowe PV"
-            )
-    with _fc2:
-        with st.expander("📉 **Ukryte koszty posiadania**"):
-            st.markdown(
-                "Paliwo to **tylko 30-40%** kosztów auta. Resztę zjada:\n\n"
-                "- **Amortyzacja** — krzywa deprecjacji per model (dane AAA AUTO / Otomoto)\n"
-                "- **Serwis** — zł/km wg segmentu, BEV 60-80% taniej niż ICE\n"
-                "- **Ubezpieczenie** — OC+AC estymacja wg ceny i napędu\n"
-                "- **Naprawy starzeniowe** — progresywne od 8. roku życia auta "
-                "(alternator, zawieszenie, korozja podwozia)\n"
-                "- **Suwak ryzyka** — sam oceniasz stan auta (×0.3 optymista → ×1.8 pesymista)"
-            )
-    with _fc3:
-        with st.expander("🔋 **PV + magazyn energii**"):
-            st.markdown(
-                "Jeśli masz **fotowoltaikę** — BEV ładujesz prawie za darmo.\n\n"
-                "**Co uwzględniamy:**\n"
-                "- Instalacja PV: profil produkcji godzinowy (dane PVGIS)\n"
-                "- Magazyn energii (BESS): buforowanie taniej energii na noc\n"
-                "- Taryfa dynamiczna RDN: ładowanie w godzinach ujemnych cen\n"
-                "- Ładowarka w pracy (darmowa lub płatna)\n"
-                "- Solver LP (HiGHS) optymalizuje mix źródeł ładowania"
-            )
-
-    _fc4, _fc5, _fc6 = st.columns(3)
-    with _fc4:
-        with st.expander("🏛️ **Tarcza podatkowa**"):
-            st.markdown(
-                "Dla **firm i JDG** — auto to koszt uzyskania przychodu.\n\n"
-                "**Limity amortyzacji 2026:**\n"
-                "- BEV: **225 000 zł** (pełne odliczenie VAT)\n"
-                "- PHEV: **150 000 zł**\n"
-                "- ICE: **150 000 zł** (50% VAT)\n\n"
-                "Liczymy: amortyzacja + paliwo/prąd + ubezpieczenie × stawka CIT/PIT. "
-                "Leasing operacyjny i finansowy z ratami i wykupem."
-            )
-    with _fc5:
-        with st.expander("🚫 **Strefy Czystego Transportu**"):
-            st.markdown(
-                "Od 2024/2026 w **Warszawie i Krakowie** obowiązuje SCT.\n\n"
-                "**Kto ma zakaz wjazdu:**\n"
-                "- Benzyna/LPG: starsze niż 20 lat (prod. przed 2006, Euro <4)\n"
-                "- Diesel: starszy niż 12 lat (prod. przed 2014, Euro <6)\n"
-                "- BEV/PHEV: **zawsze za darmo**\n\n"
-                "Mandat: **500 zł** za każdy wjazd. "
-                "Szacujemy roczny koszt objazdów i mandatów: ~3 600 zł/rok."
-            )
-    with _fc6:
-        with st.expander("🌡️ **Wpływ temperatury na BEV**"):
-            st.markdown(
-                "Zimą BEV zużywa **20-40% więcej** energii (ogrzewanie kabiny, bateria).\n\n"
-                "**Nasz model:**\n"
-                "- Profil temperaturowy: średnia polska (Warszawa)\n"
-                "- Pompa ciepła: zmniejsza stratę zimową o ~30%\n"
-                "- Precondition: podgrzewanie na kablu obniża zużycie\n"
-                "- Wynik: realny koszt prądu w skali roku, nie laboratoryjny WLTP"
-            )
-
+    # ── PROFILE CARDS — główne CTA strony ──
     st.markdown(
-        """<div style="
-            display: flex; gap: 20px; flex-wrap: wrap;
-            justify-content: center;
-            padding: 8px 0 4px 0;
-            font-size: 0.8rem; color: #94a3b8;
-        ">
-            <span>📊 Dane rynkowe 2025/2026</span>
-            <span>⛽ Ceny paliw na żywo</span>
-            <span>🌡️ Profil temperatury PL</span>
-            <span>🇵🇱 150+ modeli aut</span>
-        </div>""",
+        "<h3 style='text-align:center;margin:4px 0 2px;color:#e2e8f0;'>Zaczynam!</h3>"
+        "<p style='text-align:center;color:#64748b;margin:0 0 16px;font-size:0.9rem;'>"
+        "Kliknij profil, który najlepiej Cię opisuje</p>",
         unsafe_allow_html=True,
     )
+
+    # ── TRUST BAR — co uwzględniamy ──
+    with st.expander("🔍 **Jak to działa? Co uwzględniamy w analizie?**", expanded=False):
+        _t1, _t2, _t3 = st.columns(3)
+        with _t1:
+            st.markdown(
+                "**⚡ BEV vs ICE vs HEV**\n"
+                "- Zużycie wg stylu jazdy\n"
+                "- Ceny paliw na żywo (e-petrol)\n"
+                "- Optymalizacja ładowania BEV\n\n"
+                "**📉 Ukryte koszty**\n"
+                "- Amortyzacja per model\n"
+                "- Serwis, ubezpieczenie OC+AC\n"
+                "- Naprawy wg TÜV Report 2026"
+            )
+        with _t2:
+            st.markdown(
+                "**🔋 PV + magazyn energii**\n"
+                "- Profil produkcji PV (PVGIS)\n"
+                "- BESS, taryfa dynamiczna RDN\n"
+                "- Solver LP optymalizuje mix\n\n"
+                "**🏛️ Tarcza podatkowa**\n"
+                "- Amortyzacja BEV 225k / ICE 150k\n"
+                "- Leasing operacyjny/finansowy\n"
+                "- CIT/PIT, odliczenie VAT"
+            )
+        with _t3:
+            st.markdown(
+                "**🚫 Strefy Czystego Transportu**\n"
+                "- Warszawa, Kraków — koszty\n"
+                "- Benzyna 20+ lat, diesel 12+ lat\n"
+                "- BEV/PHEV zawsze za darmo\n\n"
+                "**🌡️ Wpływ temperatury na BEV**\n"
+                "- Profil temperaturowy PL\n"
+                "- Pompa ciepła, precondition\n"
+                "- Realny koszt, nie WLTP"
+            )
 
 else:
     # ── KOMPAKTOWY HEADER dla kroków 1-3+ ──
@@ -2593,25 +2532,18 @@ def _render_wizard(fuel_data):
     step = st.session_state["wizard_step"]
     wdata = st.session_state["wizard_data"]
 
-    # Progress bar
-    _progress_labels = ["Kim jesteś?", "Twoje auto", "Czego potrzebujesz?", "Rekomendacja"]
-    progress_pct = step / 3
-    st.progress(progress_pct, text=f"Krok {step + 1}/4: {_progress_labels[min(step, 3)]}")
+    # Progress bar — ukryj na stronie startowej (step 0), bo hero pełni tę rolę
+    if step > 0:
+        _progress_labels = ["Kim jesteś?", "Twoje auto", "Czego potrzebujesz?", "Rekomendacja"]
+        progress_pct = step / 3
+        st.progress(progress_pct, text=f"Krok {step + 1}/4: {_progress_labels[min(step, 3)]}")
 
     # ----- KROK 0: Profil -----
     if step == 0:
-        st.markdown(
-            "<h2 style='margin-bottom:4px'>Wybierz swój profil</h2>"
-            "<p style='color:#64748b; margin-top:0'>Odpowiedz na 3 pytania — "
-            "dostaniesz spersonalizowaną rekomendację w 2 minuty.</p>",
-            unsafe_allow_html=True,
-        )
-
         _wiz_labels = [WIZARD_PROFILES[i]["label"] for i in range(6)]
         _wiz_descs = [WIZARD_PROFILES[i]["desc"] for i in range(6)]
 
-        # Karty profilów w 2 rzędach × 3 kolumny
-        _selected_id = wdata.get("profile_id", 0)
+        # Karty profilów w 2 rzędach × 3 kolumny — główne CTA
         for row_start in (0, 3):
             cols = st.columns(3)
             for j, col in enumerate(cols):
@@ -2619,14 +2551,11 @@ def _render_wizard(fuel_data):
                 if idx >= len(_wiz_labels):
                     break
                 with col:
-                    _is_selected = idx == _selected_id
-                    _border_color = "#3b82f6" if _is_selected else "#334155"
-                    _bg = "rgba(59,130,246,0.08)" if _is_selected else "transparent"
                     if st.button(
                         _wiz_labels[idx],
                         key=f"wiz_profile_{idx}",
                         use_container_width=True,
-                        type="primary" if _is_selected else "secondary",
+                        help=_wiz_descs[idx],
                     ):
                         wdata["profile_id"] = idx
                         _pdef = _PROFILE_DEFAULTS[idx]
@@ -2634,16 +2563,6 @@ def _render_wizard(fuel_data):
                         st.session_state["wizard_data"] = wdata
                         st.session_state["wizard_step"] = 1
                         st.rerun()
-
-        # Opis wybranego profilu
-        st.info(f"**{_wiz_labels[_selected_id]}** — {_wiz_descs[_selected_id]}")
-
-        st.markdown("---")
-        st.markdown(
-            "<p style='text-align:center; color:#94a3b8; font-size:0.85rem'>"
-            "Kliknij swój profil powyżej aby rozpocząć analizę</p>",
-            unsafe_allow_html=True,
-        )
 
     # ----- KROK 1: Masz auto? -----
     elif step == 1:
