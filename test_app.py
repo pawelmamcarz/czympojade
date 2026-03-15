@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 # ---------------------------------------------------------------------------
-# Mockujemy streamlit + plotly + highspy żeby import app.py nie odpalał UI
+# Mockujemy framework UI + plotly + highspy żeby import app.py nie odpalał UI
 # ---------------------------------------------------------------------------
 
 st_mock = MagicMock()

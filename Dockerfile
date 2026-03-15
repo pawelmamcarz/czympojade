@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # App source
 COPY . .
 
-# Streamlit config (kopiowany z .streamlit/config.toml w COPY . .)
+# Config serwera (z .streamlit/config.toml — kopiowany w COPY . .)
 # enableStaticServing = true umożliwia serwowanie plików z static/
 
 # Railway ustawia PORT dynamicznie — skrypt startowy go odczyta

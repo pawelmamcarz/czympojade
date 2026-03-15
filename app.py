@@ -63,22 +63,19 @@ st.set_page_config(
     layout="wide",
 )
 
-# --- Ukryj "Made with Streamlit" z menu hamburger ---
+# --- Customowy CSS: ukrycie frameworkowych elementów UI + layout ---
 st.markdown(
     """<style>
-    /* Usuń biały padding na górze */
+    /* Layout: minimalizuj padding */
     .stApp > header {display: none !important;}
     .block-container {padding-top: 1rem !important; padding-bottom: 1rem !important;}
-    /* Ukryj WSZYSTKO co mówi "Streamlit" */
+    /* Ukryj elementy frameworkowe (footer, deploy, badges) */
     footer {display: none !important; visibility: hidden !important;}
     .stApp footer {display: none !important;}
     [data-testid="manage-app-button"] {display: none !important;}
-    /* "Made with Streamlit" w menu hamburger */
     #MainMenu ul li:last-child {display: none !important;}
-    /* Toolbar deploy button */
     .stDeployButton {display: none !important;}
     div[data-testid="stToolbarActions"] > div:last-child {display: none !important;}
-    /* Footer "Made with Streamlit" */
     .viewerBadge_container__r5tak {display: none !important;}
     .styles_viewerBadge__CvC9N {display: none !important;}
     ._profileContainer_gzau3_53 {display: none !important;}
@@ -277,26 +274,59 @@ if _wiz_step == 0:
                     min-width: 140px;
                 ">
                     <div style="font-size: 1.8rem; font-weight: 700; color: #f59e0b;">3</div>
-                    <div style="font-size: 0.8rem; color: #94a3b8;">scenariusze TCO</div>
+                    <div style="font-size: 0.8rem; color: #94a3b8;">scenariusze kosztów</div>
                 </div>
             </div>
         </div>""",
         unsafe_allow_html=True,
     )
 
-    # Social proof / trust badges
+    # Feature boxes — co system potrafi
+    _feature_box_style = (
+        "background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; "
+        "padding: 20px 16px; text-align: center; flex: 1; min-width: 180px;"
+    )
     st.markdown(
-        """<div style="
-            display: flex; gap: 24px; flex-wrap: wrap;
+        f"""<div style="
+            display: flex; gap: 16px; flex-wrap: wrap;
+            padding: 12px 0 8px 0;
+        ">
+            <div style="{_feature_box_style}">
+                <div style="font-size: 1.6rem; margin-bottom: 6px;">⚡ vs ⛽</div>
+                <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;">Elektryk vs spalinowy</div>
+                <div style="font-size: 0.8rem; color: #64748b;">Porównaj BEV, hybrydę i ICE na Twoich parametrach jazdy</div>
+            </div>
+            <div style="{_feature_box_style}">
+                <div style="font-size: 1.6rem; margin-bottom: 6px;">📉</div>
+                <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;">Ukryte koszty</div>
+                <div style="font-size: 0.8rem; color: #64748b;">Amortyzacja, naprawy, ubezpieczenie — wszystko w jednym miejscu</div>
+            </div>
+            <div style="{_feature_box_style}">
+                <div style="font-size: 1.6rem; margin-bottom: 6px;">🔋</div>
+                <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;">PV + magazyn energii</div>
+                <div style="font-size: 0.8rem; color: #64748b;">Uwzględniamy fotowoltaikę, taryfy dynamiczne RDN i ładowanie w pracy</div>
+            </div>
+            <div style="{_feature_box_style}">
+                <div style="font-size: 1.6rem; margin-bottom: 6px;">🏛️</div>
+                <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;">Tarcza podatkowa</div>
+                <div style="font-size: 0.8rem; color: #64748b;">Leasing, amortyzacja, limit 150k/225k — dla firm i JDG</div>
+            </div>
+            <div style="{_feature_box_style}">
+                <div style="font-size: 1.6rem; margin-bottom: 6px;">🚫</div>
+                <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; margin-bottom: 4px;">Strefy Czystego Transportu</div>
+                <div style="font-size: 0.8rem; color: #64748b;">Warszawa i Kraków — sprawdź czy Twoje auto ma zakaz wjazdu</div>
+            </div>
+        </div>
+        <div style="
+            display: flex; gap: 20px; flex-wrap: wrap;
             justify-content: center;
-            padding: 8px 0 16px 0;
-            font-size: 0.85rem; color: #64748b;
+            padding: 16px 0 8px 0;
+            font-size: 0.8rem; color: #94a3b8;
         ">
             <span>📊 Dane rynkowe 2025/2026</span>
-            <span>⛽ Bieżące ceny paliw (e-petrol)</span>
-            <span>⚡ Taryfy dynamiczne RDN</span>
-            <span>🏛️ Tarcza podatkowa 2026</span>
+            <span>⛽ Ceny paliw na żywo</span>
             <span>🌡️ Wpływ temperatury na BEV</span>
+            <span>🇵🇱 Rynek polski</span>
         </div>""",
         unsafe_allow_html=True,
     )
@@ -2387,7 +2417,7 @@ def _prefill_from_wizard(wdata):
     st.query_params["city"]  = str(_city_int)
     st.query_params["rural"] = str(_rural_int)
     st.query_params["hwy"]   = str(_hwy_int)
-    # Resetujemy stare wartości session_state — inaczej Streamlit ignoruje value=
+    # Resetujemy stare wartości session_state — wymuszenie aktualizacji widgetów
     for _k in ("pct_city", "pct_rural", "pct_highway"):
         st.session_state.pop(_k, None)
     st.session_state["pct_city"]    = _city_int
