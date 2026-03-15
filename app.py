@@ -3114,21 +3114,29 @@ def _render_wizard(fuel_data):
                     _link_colors = [_hex_to_rgba(c) for c in _colors]
 
                     fig_sankey = go.Figure(data=[go.Sankey(
+                        orientation="h",
                         node=dict(
-                            pad=15, thickness=20,
+                            pad=30, thickness=25,
                             label=_labels,
                             color=["#1e293b"] + _colors,
+                            line=dict(width=0),
                         ),
                         link=dict(
                             source=_sources, target=_targets,
                             value=_values, color=_link_colors,
                         ),
                     )])
+                    _sankey_h = max(400, 120 + len(_components) * 60)
                     fig_sankey.update_layout(
-                        title=f"Skąd się bierze {_sk_monthly:,.0f} zł/mies.?",
-                        height=350,
-                        margin=dict(t=50, b=20, l=20, r=20),
-                        font=dict(size=13),
+                        title=dict(
+                            text=f"Skąd się bierze {_sk_monthly:,.0f} zł/mies.?",
+                            font=dict(size=16),
+                        ),
+                        height=_sankey_h,
+                        margin=dict(t=50, b=30, l=30, r=160),
+                        font=dict(size=14, color="#e2e8f0"),
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
                     )
                     st.plotly_chart(fig_sankey, use_container_width=True)
 
