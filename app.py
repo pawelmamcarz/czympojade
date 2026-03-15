@@ -63,11 +63,132 @@ st.set_page_config(
     layout="wide",
 )
 
-# Nadpisz tytuł przeglądarki (Streamlit dodaje "· Streamlit")
-st.components.v1.html(
-    '<script>parent.document.title="Kalkulator TCO CzymPojade.pl";</script>',
-    height=0,
+# --- SEO: meta tagi, Open Graph, Twitter Card, JSON-LD ---
+_SEO_TITLE = "Kalkulator TCO CzymPojade.pl — porównaj koszty auta elektrycznego, hybrydowego i spalinowego"
+_SEO_DESC = (
+    "Oblicz pełny koszt posiadania (TCO) samochodu w Polsce na 2026 rok. "
+    "Porównaj auto elektryczne (BEV), hybrydowe (HEV/PHEV) i spalinowe (ICE). "
+    "Uwzględnia: paliwo, prąd, serwis, ubezpieczenie, amortyzację, leasing, "
+    "tarczę podatkową, taryfy dynamiczne RDN, Strefy Czystego Transportu i 150+ modeli aut."
 )
+_SEO_URL = "https://czympojade.pl"
+_SEO_IMG = "https://czympojade.pl/app/static/og-image.png"
+_SEO_KEYWORDS = (
+    "kalkulator TCO, koszt posiadania samochodu, auto elektryczne vs spalinowe, "
+    "BEV vs ICE, porównanie kosztów aut, samochód elektryczny koszty, "
+    "hybryda koszty, spalinowy koszty, TCO samochodu 2026, "
+    "ile kosztuje auto elektryczne, opłacalność BEV, kalkulator kosztów auta, "
+    "Strefa Czystego Transportu, leasing samochodu, tarcza podatkowa auto, "
+    "Tesla koszty, Toyota Corolla koszty, czym pojadę, porównywarka aut"
+)
+st.components.v1.html(f'''
+<script>
+parent.document.title = "{_SEO_TITLE}";
+(function() {{
+    var d = parent.document;
+    var head = d.head;
+    function setMeta(name, content, prop) {{
+        var sel = prop ? 'meta[property="'+name+'"]' : 'meta[name="'+name+'"]';
+        var el = d.querySelector(sel);
+        if (!el) {{ el = d.createElement("meta"); if(prop) el.setAttribute("property",name); else el.setAttribute("name",name); head.appendChild(el); }}
+        el.setAttribute("content", content);
+    }}
+    // Basic meta
+    setMeta("description", `{_SEO_DESC}`);
+    setMeta("keywords", `{_SEO_KEYWORDS}`);
+    setMeta("author", "Paweł Mamcarz");
+    setMeta("robots", "index, follow");
+    setMeta("language", "pl");
+
+    // Open Graph (Facebook, LinkedIn)
+    setMeta("og:type", "website", true);
+    setMeta("og:url", "{_SEO_URL}", true);
+    setMeta("og:title", "{_SEO_TITLE}", true);
+    setMeta("og:description", `{_SEO_DESC}`, true);
+    setMeta("og:image", "{_SEO_IMG}", true);
+    setMeta("og:locale", "pl_PL", true);
+    setMeta("og:site_name", "CzymPojade.pl", true);
+
+    // Twitter Card
+    setMeta("twitter:card", "summary_large_image");
+    setMeta("twitter:title", "{_SEO_TITLE}");
+    setMeta("twitter:description", `{_SEO_DESC}`);
+    setMeta("twitter:image", "{_SEO_IMG}");
+
+    // Canonical URL
+    var canon = d.querySelector('link[rel="canonical"]');
+    if (!canon) {{ canon = d.createElement("link"); canon.setAttribute("rel","canonical"); head.appendChild(canon); }}
+    canon.setAttribute("href", "{_SEO_URL}");
+
+    // JSON-LD Structured Data (WebApplication + FAQPage)
+    var jsonld = d.createElement("script");
+    jsonld.type = "application/ld+json";
+    jsonld.textContent = JSON.stringify({{
+        "@context": "https://schema.org",
+        "@graph": [
+            {{
+                "@type": "WebApplication",
+                "name": "CzymPojade.pl — Kalkulator TCO",
+                "url": "{_SEO_URL}",
+                "description": `{_SEO_DESC}`,
+                "applicationCategory": "FinanceApplication",
+                "operatingSystem": "Web",
+                "offers": {{
+                    "@type": "Offer",
+                    "price": "0",
+                    "priceCurrency": "PLN"
+                }},
+                "author": {{
+                    "@type": "Person",
+                    "name": "Paweł Mamcarz",
+                    "url": "https://www.linkedin.com/in/pawelmamcarz/"
+                }},
+                "inLanguage": "pl",
+                "browserRequirements": "Requires JavaScript"
+            }},
+            {{
+                "@type": "FAQPage",
+                "mainEntity": [
+                    {{
+                        "@type": "Question",
+                        "name": "Ile kosztuje utrzymanie samochodu elektrycznego w Polsce?",
+                        "acceptedAnswer": {{
+                            "@type": "Answer",
+                            "text": "Miesięczny koszt utrzymania BEV (np. Tesla Model Y) to ok. 1500-2500 zł wliczając prąd, ubezpieczenie, serwis i amortyzację. To o 20-40% mniej niż porównywalny samochód spalinowy."
+                        }}
+                    }},
+                    {{
+                        "@type": "Question",
+                        "name": "Czy auto elektryczne się opłaca w 2026 roku?",
+                        "acceptedAnswer": {{
+                            "@type": "Answer",
+                            "text": "Tak, przy przebiegu powyżej 15 000 km rocznie BEV jest tańszy w TCO od spalinowego. Kalkulator CzymPojade.pl pozwala obliczyć dokładne koszty dla Twojego profilu jazdy."
+                        }}
+                    }},
+                    {{
+                        "@type": "Question",
+                        "name": "Co to jest TCO samochodu?",
+                        "acceptedAnswer": {{
+                            "@type": "Answer",
+                            "text": "TCO (Total Cost of Ownership) to pełny koszt posiadania auta: cena zakupu, paliwo/prąd, serwis, ubezpieczenie, amortyzacja, podatki i opłaty. Porównanie TCO pokazuje prawdziwy koszt, nie tylko cenę z salonu."
+                        }}
+                    }},
+                    {{
+                        "@type": "Question",
+                        "name": "Hybryda czy elektryczny — co się bardziej opłaca?",
+                        "acceptedAnswer": {{
+                            "@type": "Answer",
+                            "text": "Zależy od profilu jazdy. W mieście BEV wygrywa dzięki niskim kosztom prądu. Na długich trasach hybryda (HEV) może być tańsza. Kalkulator CzymPojade.pl porównuje oba warianty na Twoich parametrach."
+                        }}
+                    }}
+                ]
+            }}
+        ]
+    }});
+    head.appendChild(jsonld);
+}})();
+</script>
+''', height=0)
 
 if _HAS_ANALYTICS:
     sta.start_tracking(save_to_json="analytics.json")
@@ -6515,9 +6636,6 @@ st.markdown(
     f'{_logo_html}<br>'
     '<a href="https://highs.dev/" target="_blank">'
     '<img src="https://img.shields.io/badge/Powered%20by-HiGHS-blue?style=flat-square" alt="HiGHS" style="vertical-align: middle;">'
-    '</a> &nbsp; '
-    '<a href="https://streamlit.io/" target="_blank">'
-    '<img src="https://img.shields.io/badge/Built%20with-Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white" alt="Streamlit" style="vertical-align: middle;">'
     '</a><br><br>'
     f'{_footer_data}'
     f'© 2026 <strong>Paweł Mamcarz</strong> · v{APP_VERSION}<br>'
